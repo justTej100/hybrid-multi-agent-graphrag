@@ -1,4 +1,4 @@
-# Argus Study Buddy
+# Hybrid Multi-Agent GraphRAG
 
 Personal textbook RAG app: upload PDFs, ask questions, get tutor-style answers with **page citations** (`[p12]`). Google sign-in for anyone (guests are rate-limited); admin accounts get full upload/chat access.
 
