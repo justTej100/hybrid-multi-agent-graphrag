@@ -1,5 +1,4 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { LoaderCircle } from 'lucide-react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { isAuthenticated } from '../api';
 
@@ -20,12 +19,7 @@ export default function ProtectedRoute({ children }: Props) {
   }, []);
 
   if (status === 'loading') {
-    return (
-      <div className="session-loading" aria-live="polite">
-        <LoaderCircle className="spin" size={24} aria-hidden />
-        <span>Checking session…</span>
-      </div>
-    );
+    return <div className="main loading">Checking session…</div>;
   }
   if (status === 'denied') {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;

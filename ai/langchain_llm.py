@@ -14,7 +14,7 @@ DEFAULT_CHAT_MODEL = 'gemini-2.5-flash'
 
 
 def get_chat_model(*, temperature: float = 0.4, json_mode: bool = False) -> ChatGoogleGenerativeAI:
-    """Gemini model for study material generation."""
+    """Gemini chat model for tutor answers."""
     api_key = os.environ.get('GEMINI_API_KEY') or os.environ.get('GOOGLE_API_KEY', '')
     kwargs: dict = {
         'model': os.environ.get('GEMINI_MODEL', DEFAULT_CHAT_MODEL),

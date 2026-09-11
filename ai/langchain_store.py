@@ -1,30 +1,30 @@
 from __future__ import annotations
 
-"""PGVectorStore — vector storage in Postgres table `argus_vectors`.
+"""LangChain PGVectorStore — vector storage in Postgres table `argus_vectors`.
 
-Each row stores content, embedding, and metadata columns including chapter.
+Each row stores:
+  - content: chunk text
+  - embedding: vector(3072) from Gemini
+  - metadata columns: document_id, page, title, course (stores description for compat)
+
 Without DATABASE_URL, falls back to an in-memory list (tests only).
-Supports batched embedding with progress callbacks for 429 resume.
+
+Table is created on app startup via ensure_vector_table() in main.py lifespan.
 """
 
 import logging
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Awaitable
+from typing import Any
 
 from langchain_core.documents import Document
 from langchain_postgres import Column, PGEngine, PGVectorStore
 
-from ai.clients import GeminiAPIError
-from ai.embeddings import VECTOR_SIZE, get_embeddings
+from ai.langchain_embeddings import VECTOR_SIZE, get_embeddings
 
 logger = logging.getLogger(__name__)
 
 VECTOR_TABLE = 'argus_vectors'
-EMBED_BATCH_SIZE = 8
-EMBED_RESUME_HOURS = 24
-
 _engine: PGEngine | None = None
 _store: PGVectorStore | None = None
 _memory_docs: list[dict[str, Any]] = []
@@ -34,7 +34,6 @@ _metadata_columns = [
     Column(name='page', data_type='INTEGER', nullable=False),
     Column(name='title', data_type='TEXT', nullable=True),
     Column(name='course', data_type='TEXT', nullable=True),
-    Column(name='chapter', data_type='TEXT', nullable=True),
 ]
 
 
@@ -64,7 +63,7 @@ def get_engine() -> PGEngine | None:
 
 
 async def ensure_vector_table() -> None:
-    """Create argus_vectors table if missing; add chapter column when needed."""
+    """Create argus_vectors table if missing."""
     engine = get_engine()
     if engine is None:
         return
@@ -76,22 +75,9 @@ async def ensure_vector_table() -> None:
             overwrite_existing=False,
         )
     except Exception as exc:
-        if 'already exists' not in str(exc).lower() and 'duplicate' not in str(exc).lower():
-            logger.warning('Vector table init: %s', exc)
-
-    # Best-effort chapter column for older tables
-    from db.client import get_pool
-
-    pool = await get_pool()
-    if pool is None:
-        return
-    try:
-        async with pool.acquire() as conn:
-            await conn.execute(
-                f'ALTER TABLE {VECTOR_TABLE} ADD COLUMN IF NOT EXISTS chapter TEXT'
-            )
-    except Exception as exc:
-        logger.debug('chapter column ensure: %s', exc)
+        if 'already exists' in str(exc).lower() or 'duplicate' in str(exc).lower():
+            return
+        logger.warning('Vector table init: %s', exc)
 
 
 async def get_vector_store() -> PGVectorStore | None:
@@ -108,7 +94,7 @@ async def get_vector_store() -> PGVectorStore | None:
             engine=engine,
             table_name=VECTOR_TABLE,
             embedding_service=get_embeddings(),
-            metadata_columns=['document_id', 'page', 'title', 'course', 'chapter'],
+            metadata_columns=['document_id', 'page', 'title', 'course'],
         )
     return _store
 
@@ -132,48 +118,23 @@ def chunks_to_documents(chunks: list[dict]) -> list[Document]:
                     'title': str(meta.get('title') or chunk.get('title') or ''),
                     'course': description,
                     'description': description,
-                    'chapter': str(meta.get('chapter') or chunk.get('chapter') or ''),
-                    'section_id': str(meta.get('section_id') or ''),
                 },
             )
         )
     return docs
 
 
-class EmbedPaused(Exception):
-    """Raised when embedding hits a sustained rate limit and should resume later."""
-
-    def __init__(self, done: int, total: int, resume_at: datetime):
-        self.done = done
-        self.total = total
-        self.resume_at = resume_at
-        super().__init__(f'Embedding paused at {done}/{total}; resume after {resume_at.isoformat()}')
-
-
-def resume_at_default() -> datetime:
-    return datetime.now(timezone.utc) + timedelta(hours=EMBED_RESUME_HOURS)
-
-
-async def add_document_chunks(
-    document_id: str,
-    chunks: list[dict],
-    *,
-    start_index: int = 0,
-    on_progress: Callable[[int, int], Awaitable[None]] | None = None,
-    clear_existing: bool = True,
-) -> int:
-    """Embed and store chunks in batches. Raises EmbedPaused on sustained 429."""
+async def add_document_chunks(document_id: str, chunks: list[dict]) -> int:
+    """Embed and store chunks for one textbook."""
     global _memory_docs
     documents = chunks_to_documents(chunks)
     if not documents:
         return 0
 
-    total = len(documents)
     store = await get_vector_store()
     if store is None:
-        if clear_existing and start_index == 0:
-            _memory_docs = [d for d in _memory_docs if d.get('metadata', {}).get('document_id') != document_id]
-        for doc in documents[start_index:]:
+        _memory_docs = [d for d in _memory_docs if d.get('metadata', {}).get('document_id') != document_id]
+        for doc in documents:
             _memory_docs.append(
                 {
                     'page_content': doc.page_content,
@@ -181,37 +142,12 @@ async def add_document_chunks(
                     'id': str(uuid.uuid4()),
                 }
             )
-        if on_progress:
-            await on_progress(total, total)
-        return total
+        return len(documents)
 
-    if clear_existing and start_index == 0:
-        await store.adelete(filter={'document_id': document_id})
-
-    done = start_index
-    i = start_index
-    while i < total:
-        batch = documents[i : i + EMBED_BATCH_SIZE]
-        ids = [str(uuid.uuid4()) for _ in batch]
-        try:
-            await store.aadd_documents(batch, ids=ids)
-        except Exception as exc:
-            msg = str(exc).lower()
-            status = getattr(exc, 'status_code', None)
-            if status == 429 or '429' in msg or 'rate limit' in msg or 'resource_exhausted' in msg:
-                if on_progress:
-                    await on_progress(done, total)
-                raise EmbedPaused(done, total, resume_at_default()) from exc
-            if isinstance(exc, GeminiAPIError) and exc.status_code == 429:
-                if on_progress:
-                    await on_progress(done, total)
-                raise EmbedPaused(done, total, resume_at_default()) from exc
-            raise
-        done = i + len(batch)
-        i = done
-        if on_progress:
-            await on_progress(done, total)
-    return total
+    await store.adelete(filter={'document_id': document_id})
+    ids = [str(uuid.uuid4()) for _ in documents]
+    await store.aadd_documents(documents, ids=ids)
+    return len(documents)
 
 
 async def delete_document_vectors(document_id: str) -> None:
@@ -224,26 +160,19 @@ async def delete_document_vectors(document_id: str) -> None:
     await store.adelete(filter={'document_id': document_id})
 
 
-def _memory_search(
-    query: str,
-    document_ids: list[str],
-    limit: int,
-    *,
-    start_page: int | None = None,
-    end_page: int | None = None,
-) -> list[tuple[Document, float]]:
+def _memory_search(query: str, document_ids: list[str], limit: int) -> list[tuple[Document, float]]:
+    """Trivial fallback when no DATABASE_URL (tests)."""
     del query
     results: list[tuple[Document, float]] = []
     for row in _memory_docs:
         meta = row.get('metadata') or {}
-        if meta.get('document_id') not in document_ids:
-            continue
-        page = int(meta.get('page') or 1)
-        if start_page is not None and page < start_page:
-            continue
-        if end_page is not None and page > end_page:
-            continue
-        results.append((Document(page_content=row['page_content'], metadata=meta), 0.0))
+        if meta.get('document_id') in document_ids:
+            results.append(
+                (
+                    Document(page_content=row['page_content'], metadata=meta),
+                    0.0,
+                )
+            )
     return results[:limit]
 
 
@@ -252,16 +181,14 @@ async def similarity_search(
     document_ids: list[str],
     *,
     limit: int = 12,
-    start_page: int | None = None,
-    end_page: int | None = None,
 ) -> list[tuple[Document, float]]:
-    """Retrieve similar chunks scoped to document IDs and optional page range."""
+    """Retrieve similar chunks scoped to document IDs."""
     if not document_ids:
         return []
 
     store = await get_vector_store()
     if store is None:
-        return _memory_search(query, document_ids, limit, start_page=start_page, end_page=end_page)
+        return _memory_search(query, document_ids, limit)
 
     filt: dict[str, Any]
     if len(document_ids) == 1:
@@ -269,24 +196,7 @@ async def similarity_search(
     else:
         filt = {'document_id': {'$in': document_ids}}
 
-    # Over-fetch when filtering by page so we still return `limit` in-range hits
-    fetch_k = limit * 3 if (start_page is not None or end_page is not None) else limit
-    raw = await store.asimilarity_search_with_score(query, k=fetch_k, filter=filt)
-
-    if start_page is None and end_page is None:
-        return raw[:limit]
-
-    filtered: list[tuple[Document, float]] = []
-    for doc, score in raw:
-        page = int((doc.metadata or {}).get('page') or 1)
-        if start_page is not None and page < start_page:
-            continue
-        if end_page is not None and page > end_page:
-            continue
-        filtered.append((doc, score))
-        if len(filtered) >= limit:
-            break
-    return filtered
+    return await store.asimilarity_search_with_score(query, k=limit, filter=filt)
 
 
 def documents_to_chunk_dicts(
@@ -303,7 +213,6 @@ def documents_to_chunk_dicts(
                 'document_title': meta.get('title') or 'Textbook',
                 'description': description,
                 'page_number': int(meta.get('page') or 1),
-                'chapter': meta.get('chapter') or '',
                 'sentence_start_idx': 0,
                 'sentence_end_idx': 0,
                 'text': doc.page_content,
@@ -315,6 +224,7 @@ def documents_to_chunk_dicts(
 
 
 async def count_vectors() -> int:
+    """Total rows in argus_vectors."""
     if _use_memory_store():
         return len(_memory_docs)
     from db.client import get_pool
@@ -363,7 +273,7 @@ async def sample_vectors(document_id: str, limit: int = 5) -> list[dict]:
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             f"""
-            SELECT content AS text, page, title, course, document_id, chapter
+            SELECT content AS text, page, title, course, document_id
             FROM {VECTOR_TABLE}
             WHERE document_id = $1
             ORDER BY page
@@ -381,7 +291,6 @@ async def sample_vectors(document_id: str, limit: int = 5) -> list[dict]:
                 'page': r['page'],
                 'title': r['title'],
                 'course': r['course'],
-                'chapter': r.get('chapter') or '',
             },
         }
         for r in rows

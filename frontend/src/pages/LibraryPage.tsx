@@ -1,17 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  BookOpen,
-  CheckCircle2,
-  Clock3,
-  Eye,
-  FileUp,
-  GraduationCap,
-  RefreshCw,
-  Search,
-  Trash2,
-  TriangleAlert,
-  Upload,
-} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import {
   bulkDeleteDocuments,
@@ -31,13 +18,8 @@ import type { Document, FlashcardOffer } from '../types';
 
 function StatusBadge({ status }: { status: string }) {
   const cls =
-    status === 'ready'
-      ? 'status-ready'
-      : status === 'error'
-        ? 'status-error'
-        : 'status-processing';
-  const Icon = status === 'ready' ? CheckCircle2 : status === 'error' ? TriangleAlert : Clock3;
-  return <span className={`status ${cls}`}><Icon size={13} aria-hidden />{status.replace(/_/g, ' ')}</span>;
+    status === 'ready' ? 'status-ready' : status === 'error' ? 'status-error' : 'status-processing';
+  return <span className={`status ${cls}`}>{status}</span>;
 }
 
 type DeleteTarget = { ids: string[]; titles: string[]; label: string };
@@ -237,7 +219,7 @@ export default function LibraryPage() {
   };
 
   return (
-    <div className="library-page">
+    <div>
       <ConfirmDeleteModal
         open={deleteTarget !== null}
         title={deleteTarget?.label ?? ''}
@@ -248,27 +230,15 @@ export default function LibraryPage() {
         onConfirm={confirmDelete}
       />
 
-      <header className="page-header">
-        <p className="eyebrow">Your sources</p>
-        <h1 className="page-title">Library</h1>
-        <p className="page-sub">
-          {isAdmin
-            ? 'Add textbooks, monitor processing, and manage chapter collections.'
-            : 'Browse available textbooks and turn chapters into focused study packs.'}
-        </p>
-      </header>
+      <h1 className="page-title">Library</h1>
+      <p className="page-sub">
+        {isAdmin ? 'Upload PDFs · embeddings build automatically' : 'Browse textbooks and open Study to chat (guest rate limits apply)'}
+      </p>
 
       {isAdmin && (
       <div className="upload-compact panel">
-        <div className="section-heading">
-          <div className="section-icon"><FileUp size={19} aria-hidden /></div>
-          <div>
-            <h2>Upload a textbook</h2>
-            <p>PDFs are processed into searchable, source-linked chapters.</p>
-          </div>
-        </div>
+        <p className="section-label">Upload</p>
         <div className="upload-row">
-          <label className="sr-only" htmlFor="title">Textbook title</label>
           <input
             id="title"
             className="upload-input"
@@ -277,7 +247,6 @@ export default function LibraryPage() {
             placeholder="Title (defaults to filename)"
           />
           <label className="btn btn-ghost upload-file-btn">
-            <Upload size={17} aria-hidden />
             {previewFile ? previewFile.name : 'Choose PDF'}
             <input
               id="pdf"
@@ -289,11 +258,9 @@ export default function LibraryPage() {
             />
           </label>
           <button type="button" className="btn btn-primary" disabled={uploading} onClick={handleUpload}>
-            <Upload size={17} aria-hidden />
             {uploading ? 'Working…' : 'Upload'}
           </button>
         </div>
-        <label className="sr-only" htmlFor="description">Description</label>
         <textarea
           id="description"
           className="upload-description"
@@ -302,7 +269,7 @@ export default function LibraryPage() {
           placeholder="Description (optional)"
           rows={2}
         />
-        {uploadMsg && <p aria-live="polite" className={uploadMsg.includes('Ready') ? 'success-message upload-msg' : 'upload-message upload-msg'}>{uploadMsg}</p>}
+        {uploadMsg && <p className={uploadMsg.includes('Ready') ? 'doc-meta upload-msg' : 'login-error upload-msg'}>{uploadMsg}</p>}
         <div className="upload-preview">
           <PdfViewer
             file={previewBlobUrl ?? previewFile ?? undefined}
@@ -315,63 +282,48 @@ export default function LibraryPage() {
       )}
 
       {!isAdmin && previewDocId && (
-        <div className="panel preview-panel">
+        <div className="panel" style={{ marginBottom: '1rem' }}>
           <PdfViewer documentId={previewDocId} page={previewPage} onPageChange={setPreviewPage} />
         </div>
       )}
 
-      <section className={isAdmin ? 'library-section spaced' : 'library-section'}>
-        <div className="section-title-row">
-          <div>
-            <p className="eyebrow">Collection</p>
-            <h2>Your textbooks</h2>
-          </div>
-          <span className="count-badge">{filteredDocs.length}</span>
-        </div>
+      <div style={{ marginTop: isAdmin ? '1.5rem' : 0 }}>
+        <p className="section-label">Your textbooks</p>
         <div className="toolbar">
-          <label className="search-field">
-            <Search size={17} aria-hidden />
-            <span className="sr-only">Search textbooks</span>
-            <input
-              placeholder="Search textbooks"
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-            />
-          </label>
-          <button type="button" className="btn btn-secondary" onClick={refresh}>
-            <RefreshCw size={16} aria-hidden /> Refresh
+          <input
+            placeholder="Search by title or description"
+            value={searchFilter}
+            onChange={(e) => setSearchFilter(e.target.value)}
+            style={{ padding: '0.4rem 0.6rem', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 6 }}
+          />
+          <button type="button" className="btn btn-ghost" onClick={refresh}>
+            Refresh
           </button>
           {isAdmin && (
             <>
-              <button type="button" className="btn btn-secondary" onClick={() => setSelected(new Set(docs.map((d) => d.id)))}>
+              <button type="button" className="btn btn-ghost" onClick={() => setSelected(new Set(docs.map((d) => d.id)))}>
                 Select all
               </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setSelected(new Set())}>
+              <button type="button" className="btn btn-ghost" onClick={() => setSelected(new Set())}>
                 Clear
               </button>
               <button type="button" className="btn btn-danger" disabled={!selected.size || deleting} onClick={openBulkDelete}>
-                <Trash2 size={16} aria-hidden /> Delete ({selected.size})
+                Delete ({selected.size})
               </button>
             </>
           )}
           <Link to="/study" className="btn btn-primary">
-            <GraduationCap size={17} aria-hidden /> Study
+            Study
           </Link>
         </div>
 
-        {loading && <p className="loading" aria-live="polite">Loading textbooks…</p>}
-        {!loading && filteredDocs.length === 0 && (
-          <div className="empty-state compact">
-            <div className="empty-icon"><BookOpen size={24} aria-hidden /></div>
-            <p className="empty-title">No textbooks found</p>
-            <p className="muted">{searchFilter ? 'Try a different search.' : 'Add a PDF to start building your library.'}</p>
-          </div>
-        )}
+        {loading && <p className="loading">Loading…</p>}
+        {!loading && filteredDocs.length === 0 && <p className="empty">No textbooks yet.</p>}
         {filteredDocs.map((doc) => (
-          <article key={doc.id} className="doc-row">
-            <div className="doc-main">
+          <div key={doc.id} className="doc-row">
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start' }}>
               {isAdmin && (
-                <input aria-label={`Select ${doc.title}`} type="checkbox" checked={selected.has(doc.id)} onChange={() => toggle(doc.id)} />
+                <input type="checkbox" checked={selected.has(doc.id)} onChange={() => toggle(doc.id)} />
               )}
               <div>
                 <div className="doc-row-title">{doc.title}</div>
@@ -382,13 +334,13 @@ export default function LibraryPage() {
                 </div>
               </div>
             </div>
-            <div className="doc-actions">
+            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
               {doc.status === 'ready' && (
-                <Link to={`/study?document=${doc.id}`} className="btn btn-secondary">
-                  <GraduationCap size={16} aria-hidden /> Study
+                <Link to={`/study?document=${doc.id}`} className="btn btn-ghost">
+                  Study
                 </Link>
               )}
-              <button type="button" className="btn btn-secondary" onClick={() => {
+              <button type="button" className="btn btn-ghost" onClick={() => {
                 setPreviewDocId(doc.id);
                 setPreviewFile(null);
                 if (previewBlobUrl) {
@@ -397,12 +349,12 @@ export default function LibraryPage() {
                 }
                 setPreviewPage(1);
               }}>
-                <Eye size={16} aria-hidden /> Preview
+                Preview
               </button>
               {isAdmin && doc.status === 'ready' && (
                 <button
                   type="button"
-                  className="btn btn-secondary"
+                  className="btn btn-ghost"
                   disabled={subBusy === doc.id}
                   onClick={() => toggleFlashcardsOpen(doc)}
                 >
@@ -411,23 +363,18 @@ export default function LibraryPage() {
               )}
               {isAdmin && (
                 <button type="button" className="btn btn-danger" disabled={deleting} onClick={() => openSingleDelete(doc)}>
-                  <Trash2 size={16} aria-hidden /> Delete
+                  Delete
                 </button>
               )}
             </div>
-          </article>
+          </div>
         ))}
-      </section>
+      </div>
 
       {offers.length > 0 && (
-        <section className="library-section spaced">
-          <div className="section-title-row">
-            <div>
-              <p className="eyebrow">Email delivery</p>
-              <h2>Flashcard signup</h2>
-            </div>
-          </div>
-          <p className="section-description">
+        <div style={{ marginTop: '1.5rem' }}>
+          <p className="section-label">Flashcard signup</p>
+          <p className="page-sub" style={{ marginBottom: '0.75rem' }}>
             {isAdmin
               ? 'Guests can subscribe to these textbooks. Generate flashcards in Study (one textbook) and send to subscribers.'
               : 'Subscribe to get flashcards by email when the admin sends a deck for that textbook. Unsubscribe anytime.'}
@@ -444,7 +391,7 @@ export default function LibraryPage() {
               </div>
               <button
                 type="button"
-                className={offer.subscribed ? 'btn btn-secondary' : 'btn btn-primary'}
+                className={offer.subscribed ? 'btn btn-ghost' : 'btn btn-primary'}
                 disabled={subBusy === offer.document_id}
                 onClick={() => toggleSubscribe(offer.document_id, offer.subscribed)}
               >
@@ -452,7 +399,7 @@ export default function LibraryPage() {
               </button>
             </div>
           ))}
-        </section>
+        </div>
       )}
     </div>
   );

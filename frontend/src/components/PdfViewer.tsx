@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
 import { pdfUrl } from '../api';
 
 // Worker must match react-pdf's bundled pdfjs-dist version (see package.json).
@@ -42,18 +39,14 @@ export default function PdfViewer({ documentId, file, page, onPageChange }: Prop
     if (!el || !viewport) return;
 
     skipScrollSync.current = true;
-    const resolvedBehavior =
-      behavior === 'smooth' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        ? 'auto'
-        : behavior;
-    viewport.scrollTo({ top: el.offsetTop - 8, behavior: resolvedBehavior });
+    viewport.scrollTo({ top: el.offsetTop - 8, behavior });
     visiblePageRef.current = clamped;
     setVisiblePage(clamped);
     setInputPage(String(clamped));
     onPageChange?.(clamped);
     window.setTimeout(() => {
       skipScrollSync.current = false;
-    }, resolvedBehavior === 'smooth' ? 400 : 50);
+    }, behavior === 'smooth' ? 400 : 50);
   }, [numPages, onPageChange]);
 
   const updateVisibleFromScroll = useCallback(() => {
@@ -172,11 +165,11 @@ export default function PdfViewer({ documentId, file, page, onPageChange }: Prop
   };
 
   if (!file && !documentId) {
-    return <p className="empty"><FileText size={20} aria-hidden /> Choose a PDF to preview.</p>;
+    return <p className="empty">Choose a PDF to preview.</p>;
   }
 
   if (loading) {
-    return <p className="loading" aria-live="polite">Loading PDF…</p>;
+    return <p className="loading">Loading PDF…</p>;
   }
 
   if (loadError) {
@@ -197,19 +190,9 @@ export default function PdfViewer({ documentId, file, page, onPageChange }: Prop
   return (
     <div className="pdf-panel">
       <div className="pdf-toolbar">
-        <button
-          type="button"
-          className="icon-button compact"
-          aria-label="Previous page"
-          disabled={visiblePage <= 1}
-          onClick={() => scrollToPage(visiblePage - 1)}
-        >
-          <ChevronLeft size={18} aria-hidden />
-        </button>
         <span>
           Page{' '}
           <input
-            aria-label="PDF page number"
             type="number"
             min={1}
             max={numPages || undefined}
@@ -224,15 +207,6 @@ export default function PdfViewer({ documentId, file, page, onPageChange }: Prop
           />{' '}
           {numPages ? `/ ${numPages}` : ''}
         </span>
-        <button
-          type="button"
-          className="icon-button compact"
-          aria-label="Next page"
-          disabled={Boolean(numPages) && visiblePage >= numPages}
-          onClick={() => scrollToPage(visiblePage + 1)}
-        >
-          <ChevronRight size={18} aria-hidden />
-        </button>
       </div>
       <div className="pdf-viewport" ref={viewportRef} onScroll={onViewportScroll}>
         <Document
