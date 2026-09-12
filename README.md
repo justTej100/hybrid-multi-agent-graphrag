@@ -1,12 +1,20 @@
 # Hybrid Multi-Agent GraphRAG
 
-Personal textbook RAG app: upload PDFs, ask questions, get tutor-style answers with **page citations** (`[p12]`). Google sign-in for anyone (guests are rate-limited); admin accounts get full upload/chat access.
-
-**Stack:** FastAPI backend · React frontend · LangChain RAG · Gemini · Supabase Postgres + Storage
+A full-stack app that uses multiple AI-agents and Graph Retreiveal Augmented Generation to provide a personal assiant that understands various uploaded PDFs. Users can ask questions and get tutor-style answers with page citations. Users can be asked to get quiz on topics related to the PDFs uploaded. 
 
 ---
 
-## What it does
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=flat-square&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+---
+
+## Features
 
 1. **Sign in** with Google (any account; `ADMIN_EMAIL` gets full access)
 2. **Upload** PDF textbooks (admin) → background ingestion extracts text, chunks by page, embeds with Gemini
@@ -19,7 +27,35 @@ Citations are **page-level** (`[pN]`), driven by LangChain `Document.metadata.pa
 
 ---
 
-## Repo layout
+## Example library: Applied Statistics
+
+This project was scoped down to test against six canonical statistics texts because they overlap enough to make cross-document questions relevant.
+
+| Book | Authors | Edition |
+|---|---|---|
+| Generalized Linear Models with Examples in R | Dunn & Smyth | 1st (2018) |
+| Mixed Effects Models and Extensions in Ecology with R | Zuur et al. | 1st (2009) |
+| Survival Analysis | Klein & Moeschberger | 2nd (2003) |
+| The Elements of Statistical Learning | Hastie, Tibshirani & Friedman | 2nd (2009) |
+| Bootstrap Methods With Applications in R | Dikta & Scheer | 1st (2021) |
+| Statistical Rethinking | McElreath | 2nd (2019) |
+
+A question like "how does bootstrap resampling substitute for asymptotic inference across these texts" pulls from multiple books at once
+
+---
+
+## Roadmap
+
+The current pipeline answers questions per document. The direction this project is moving in:
+
+- **Per-book knowledge graphs**, extracting entities and relationships (models, estimators, assumptions, R implementations) so retrieval can follow a concept across chapters, not just match nearby text.
+- **Cross-book synthesis**, answering questions that span multiple texts by querying each relevant book's graph in parallel and merging the results with attribution.
+- **A lightweight classifier** to route a query to the right book(s) before retrieval runs, so cost scales with relevance, not with library size.
+
+None of this is implemented yet. It's listed here so the gap between the name and the code is a stated plan, not a surprise.
+
+
+## old Repo layout
 
 ```
 argus/
