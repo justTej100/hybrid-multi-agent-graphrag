@@ -1,3 +1,54 @@
+"""
+QueryAgent
+----------
+Executes retrieval against your vector store and graph DB using the
+query/topic that RefinerAgent produced. This is the only agent that should
+touch your DB layer — keep it that way so you have one place to swap
+retrieval implementations.
+"""
+
+from typing import Callable
+
+
+def make_query_node() -> Callable[[dict], dict]:
+    """
+    Returns a LangGraph node function. No LLM needed here — this agent is
+    pure retrieval. Wire your real vector store / graph DB into the two
+    stub functions below.
+    """
+
+    def query_agent(state: dict) -> dict:
+        query = state["refined_query"]
+
+        chunks = _vector_search(query)
+        graph_facts = _graph_search(query)
+
+        return {
+            **state,
+            "retrieved_chunks": chunks,
+            "retrieved_graph_facts": graph_facts,
+        }
+
+    return query_agent
+
+
+def _vector_search(query: str) -> list[str]:
+    # TODO: replace with real vector store retrieval, e.g.:
+    #   from langchain_community.vectorstores import Chroma
+    #   results = vectorstore.similarity_search(query, k=5)
+    #   return [doc.page_content for doc in results]
+    return [f"[stub chunk relevant to: {query}]"]
+
+
+def _graph_search(query: str) -> list[str]:
+    # TODO: replace with real graph traversal / community summary lookup, e.g.:
+    #   from neo4j import GraphDatabase
+    #   results = graph_driver.execute_query(...)
+    #   return [record["summary"] for record in results]
+    return [f"[stub graph fact relevant to: {query}]"]
+
+
+
 from __future__ import annotations
 
 """PDF ingestion: extract pages → LangChain split → PGVectorStore embed.
