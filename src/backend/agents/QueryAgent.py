@@ -1,27 +1,81 @@
 """
 QueryAgent
 ----------
-Executes retrieval against your vector store and graph DB using the
-query/topic that RefinerAgent produced. This is the only agent that should
-touch your DB layer — keep it that way so you have one place to swap
-retrieval implementations.
+Uses LangChain tool-calling: the LLM is bound to two tools (vector_search,
+graph_search) and decides which one(s) to call based on the refined query.
+This is the only agent that should touch your DB layer — wire your real
+vector store / graph DB into the two @tool functions below.
 """
 
 from typing import Callable
 
+from langchain_core.tools import tool
+from langchain_core.messages import HumanMessage, ToolMessage
 
-def make_query_node() -> Callable[[dict], dict]:
+
+@tool
+def vector_search(query: str) -> str:
+    """Search the vector store for document chunks relevant to the query.
+    Best for specific, fact-level questions ('what does section 4 say about X')."""
+    # TODO: replace with real vector store retrieval, e.g.:
+    #   from langchain_community.vectorstores import Chroma
+    #   results = vectorstore.similarity_search(query, k=5)
+    #   return "\n".join(doc.page_content for doc in results)
+    return f"[stub chunk relevant to: {query}]"
+
+
+@tool
+def graph_search(query: str) -> str:
+    """Traverse the knowledge graph / community summaries for relationships
+    and higher-level context. Best for 'how do these things relate' or
+    'summarize across documents' style questions."""
+    # TODO: replace with real graph traversal / community summary lookup, e.g.:
+    #   from neo4j import GraphDatabase
+    #   results = graph_driver.execute_query(...)
+    #   return "\n".join(record["summary"] for record in results)
+    return f"[stub graph fact relevant to: {query}]"
+
+
+TOOLS = [vector_search, graph_search]
+TOOLS_BY_NAME = {t.name: t for t in TOOLS}
+
+
+def make_query_node(llm) -> Callable[[dict], dict]:
     """
-    Returns a LangGraph node function. No LLM needed here — this agent is
-    pure retrieval. Wire your real vector store / graph DB into the two
-    stub functions below.
+    Returns a LangGraph node function. The LLM decides which tool(s) to
+    call (vector, graph, or both) based on the refined query, then we
+    execute those tool calls and split results back into the two state
+    fields ResponseAgent/EvalAgent expect.
     """
+    llm_with_tools = llm.bind_tools(TOOLS)
 
     def query_agent(state: dict) -> dict:
         query = state["refined_query"]
 
-        chunks = _vector_search(query)
-        graph_facts = _graph_search(query)
+        instruction = (
+            "Given this query, call whichever tool(s) will best retrieve "
+            "relevant information. Call both if the query needs both specific "
+            f"facts and broader relationships.\n\nQuery: {query}"
+        )
+        ai_msg = llm_with_tools.invoke([HumanMessage(content=instruction)])
+
+        chunks: list[str] = []
+        graph_facts: list[str] = []
+
+        # If the model didn't call any tool, fall back to calling both directly.
+        tool_calls = ai_msg.tool_calls or [
+            {"name": "vector_search", "args": {"query": query}, "id": "fallback_vs"},
+            {"name": "graph_search", "args": {"query": query}, "id": "fallback_gs"},
+        ]
+
+        for call in tool_calls:
+            tool_fn = TOOLS_BY_NAME[call["name"]]
+            result = tool_fn.invoke(call["args"])
+
+            if call["name"] == "vector_search":
+                chunks.append(result)
+            else:
+                graph_facts.append(result)
 
         return {
             **state,
@@ -30,22 +84,6 @@ def make_query_node() -> Callable[[dict], dict]:
         }
 
     return query_agent
-
-
-def _vector_search(query: str) -> list[str]:
-    # TODO: replace with real vector store retrieval, e.g.:
-    #   from langchain_community.vectorstores import Chroma
-    #   results = vectorstore.similarity_search(query, k=5)
-    #   return [doc.page_content for doc in results]
-    return [f"[stub chunk relevant to: {query}]"]
-
-
-def _graph_search(query: str) -> list[str]:
-    # TODO: replace with real graph traversal / community summary lookup, e.g.:
-    #   from neo4j import GraphDatabase
-    #   results = graph_driver.execute_query(...)
-    #   return [record["summary"] for record in results]
-    return [f"[stub graph fact relevant to: {query}]"]
 
 
 

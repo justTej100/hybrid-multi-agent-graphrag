@@ -1,59 +1,72 @@
-
-"""Post-generation citation verification (no extra LLM call).
-
-Checks that answers contain real prose (not just [pN] tags) and that cited
-pages appeared in the retrieved chunk set.
-"""
 """
 EvalAgent
 ---------
-Checks ResponseAgent's draft against the retrieved evidence. Also owns the
-retry-routing logic used by the LangGraph conditional edge.
+LCEL chain with structured output (pydantic model) instead of parsing
+"VERDICT: PASS/FAIL" strings. Checks ResponseAgent's draft against the
+retrieved evidence. Also owns the retry-routing logic used by the
+LangGraph conditional edge.
 """
 
 from typing import Callable
 
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
+
 MAX_RETRIES = 2
+
+
+class EvalResult(BaseModel):
+    passed: bool = Field(description="True if every claim in the draft is supported by the context")
+    reason: str = Field(description="One sentence explaining the verdict")
+
+
+EVAL_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You are a strict fact-checker. Given the CONTEXT and the DRAFT, "
+            "determine if every claim in the draft is supported by the context.\n\n"
+            "CONTEXT:\n{context}",
+        ),
+        ("human", "DRAFT:\n{draft_response}"),
+    ]
+)
 
 
 def make_eval_node(llm) -> Callable[[dict], dict]:
     """
     Returns a LangGraph node function bound to the given LLM client.
     """
+    eval_chain = EVAL_PROMPT | llm.with_structured_output(EvalResult)
 
     def eval_agent(state: dict) -> dict:
         context = "\n".join(state["retrieved_chunks"] + state["retrieved_graph_facts"])
 
-        prompt = (
-            "You are a strict fact-checker. Given the CONTEXT and the DRAFT below, "
-            "determine if every claim in the draft is supported by the context.\n"
-            "Respond in exactly this format:\n"
-            "VERDICT: PASS or FAIL\n"
-            "REASON: <one sentence>\n\n"
-            f"CONTEXT:\n{context}\n\nDRAFT:\n{state['draft_response']}"
+        result: EvalResult = eval_chain.invoke(
+            {"context": context, "draft_response": state["draft_response"]}
         )
-        result = llm.invoke(prompt).content
 
-        passed = "VERDICT: PASS" in result
-        reason = result.split("REASON:")[-1].strip() if "REASON:" in result else result
+        new_retry_count = state["retry_count"] if result.passed else state["retry_count"] + 1
 
-        return {**state, "eval_passed": passed, "eval_feedback": None if passed else reason}
+        return {
+            **state,
+            "eval_passed": result.passed,
+            "eval_feedback": None if result.passed else result.reason,
+            "retry_count": new_retry_count,
+        }
 
     return eval_agent
 
 
 def route_after_eval(state: dict) -> str:
-    """Conditional edge: decide whether to end or loop back to RefinerAgent."""
+    """Conditional edge: end if passed, otherwise loop back to RefinerAgent
+    (unless we've already hit MAX_RETRIES, in which case give up gracefully)."""
     if state["eval_passed"]:
         return "end"
-    if state["retry_count"] >= MAX_RETRIES:
-        return "end"  # give up gracefully rather than looping forever
-    return "retry"
+    if state["retry_count"] > MAX_RETRIES:
+        return "end"
+    return "refiner"
 
-
-def increment_retry(state: dict) -> dict:
-    return {**state, "retry_count": state["retry_count"] + 1}
-    
 from dataclasses import dataclass
 
 from citations import extract_page_citations, is_citation_only

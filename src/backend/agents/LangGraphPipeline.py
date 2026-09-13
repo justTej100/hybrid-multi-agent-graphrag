@@ -4,18 +4,25 @@ Pipeline
 Wires the four agents into a LangGraph state machine:
 
     RefinerAgent -> QueryAgent -> ResponseAgent -> EvalAgent
-                       ^                              |
-                       |__________ retry (fail) _______|
+         ^                                             |
+         |______________ retry (fail) ________________|
 
-LLM provider is switchable between Google Gemini and DeepSeek via the
-LLM_PROVIDER env var (or by editing DEFAULT_PROVIDER below).
+All four agents use LangChain (LCEL chains + tool-calling). LLM provider
+is switchable between Google Gemini and DeepSeek via the LLM_PROVIDER
+env var (or by editing DEFAULT_PROVIDER below). Both are standard
+LangChain chat models, so bind_tools / with_structured_output / LCEL all
+work the same way regardless of provider.
 
 Install what you need:
-    pip install langgraph langchain-google-genai langchain-openai
+    pip install langgraph langchain-core langchain-google-genai langchain-openai pydantic
 
 Env vars:
     LLM_PROVIDER=gemini      GOOGLE_API_KEY=...
     LLM_PROVIDER=deepseek    DEEPSEEK_API_KEY=...
+
+Note: tool-calling and with_structured_output require a model that
+supports function calling. Gemini 1.5 Pro/Flash and DeepSeek-chat (v2.5+)
+both do.
 """
 
 import os
@@ -26,7 +33,7 @@ from langgraph.graph import StateGraph, END
 from refiner_agent import make_refiner_node
 from query_agent import make_query_node
 from response_agent import make_response_node
-from eval_agent import make_eval_node, route_after_eval, increment_retry
+from eval_agent import make_eval_node, route_after_eval
 
 DEFAULT_PROVIDER = "gemini"  # "gemini" or "deepseek"
 
@@ -48,7 +55,8 @@ def get_llm(provider: Optional[str] = None):
 
     if provider == "deepseek":
         # DeepSeek exposes an OpenAI-compatible API, so ChatOpenAI works
-        # with a custom base_url.
+        # with a custom base_url. DeepSeek supports function calling on
+        # deepseek-chat (v2.5+).
         from langchain_openai import ChatOpenAI
 
         return ChatOpenAI(
@@ -89,10 +97,9 @@ def build_pipeline(provider: Optional[str] = None):
     graph = StateGraph(PipelineState)
 
     graph.add_node("refiner", make_refiner_node(llm))
-    graph.add_node("query", make_query_node())
+    graph.add_node("query", make_query_node(llm))       # needs llm now (tool-calling)
     graph.add_node("response", make_response_node(llm))
     graph.add_node("eval", make_eval_node(llm))
-    graph.add_node("bump_retry", increment_retry)
 
     graph.set_entry_point("refiner")
     graph.add_edge("refiner", "query")
@@ -104,10 +111,9 @@ def build_pipeline(provider: Optional[str] = None):
         route_after_eval,
         {
             "end": END,
-            "retry": "bump_retry",
+            "refiner": "refiner",
         },
     )
-    graph.add_edge("bump_retry", "refiner")
 
     return graph.compile()
 

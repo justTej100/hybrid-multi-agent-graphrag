@@ -1,44 +1,63 @@
 """
 RefinerAgent
 ------------
-Takes the raw user input (and, on retry, EvalAgent's feedback) and turns it
-into a precise query (answer mode) or topic description (quiz mode) that
-QueryAgent can retrieve against.
+LCEL chain: prompt -> llm -> string output.
+Rewrites raw user input (+ EvalAgent feedback on retry) into a retrieval-
+ready query (answer mode) or topic description (quiz mode).
 """
 
 from typing import Callable
 
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+
+ANSWER_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "Rewrite the user's question into a precise, unambiguous search query "
+            "suitable for retrieval against a document database. Expand "
+            "abbreviations, resolve vague references, keep it concise. "
+            "{feedback_note}",
+        ),
+        ("human", "{user_input}"),
+    ]
+)
+
+QUIZ_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "Rewrite the user's request into a short topic/section description "
+            "that can be used to pull relevant reference material for generating "
+            "quiz questions. {feedback_note}",
+        ),
+        ("human", "{user_input}"),
+    ]
+)
+
 
 def make_refiner_node(llm) -> Callable[[dict], dict]:
     """
-    Returns a LangGraph node function bound to the given LLM client.
-    `llm` must expose `.invoke(prompt) -> response` with `response.content`
-    (this is true for ChatGoogleGenerativeAI, ChatOpenAI/DeepSeek, etc.)
+    Returns a LangGraph node function bound to the given LLM client
+    (ChatGoogleGenerativeAI, ChatOpenAI/DeepSeek, etc. — any LangChain
+    chat model works here).
     """
+    answer_chain = ANSWER_PROMPT | llm | StrOutputParser()
+    quiz_chain = QUIZ_PROMPT | llm | StrOutputParser()
 
     def refiner_agent(state: dict) -> dict:
         feedback_note = (
-            f"\nPrevious attempt failed because: {state['eval_feedback']}\n"
+            f"Previous attempt failed because: {state['eval_feedback']}. "
             "Adjust the query to fix this."
             if state.get("eval_feedback")
             else ""
         )
 
-        if state["mode"] == "answer":
-            instruction = (
-                "Rewrite the user's question into a precise, unambiguous search "
-                "query suitable for retrieval against a document database. "
-                "Expand abbreviations, resolve vague references, keep it concise."
-            )
-        else:  # quiz mode
-            instruction = (
-                "Rewrite the user's request into a short topic/section description "
-                "that can be used to pull relevant reference material for generating "
-                "quiz questions."
-            )
-
-        prompt = f"{instruction}{feedback_note}\n\nUser input: {state['user_input']}"
-        refined = llm.invoke(prompt).content
+        chain = answer_chain if state["mode"] == "answer" else quiz_chain
+        refined = chain.invoke(
+            {"user_input": state["user_input"], "feedback_note": feedback_note}
+        )
 
         return {**state, "refined_query": refined}
 
