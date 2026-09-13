@@ -1,9 +1,4 @@
 # Hybrid Multi-Agent GraphRAG
-
-A full-stack app that uses multiple AI-agents and Graph Retreiveal Augmented Generation to provide a personal assiant that understands various uploaded PDFs. Users can ask questions and get tutor-style answers with page citations. Users can be asked to get quiz on topics related to the PDFs uploaded. 
-
----
-
 ![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black)
@@ -12,6 +7,10 @@ A full-stack app that uses multiple AI-agents and Graph Retreiveal Augmented Gen
 ![Gemini](https://img.shields.io/badge/Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
 ![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white)
+
+A full-stack app that uses multiple AI-agents and Graph Retreiveal Augmented Generation to provide a personal assiant that understands various uploaded PDFs. Users can ask questions and get tutor-style answers with page citations. Users can be asked to get quiz on topics related to the PDFs uploaded. 
+
+
 ---
 
 ## Features

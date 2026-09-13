@@ -1,4 +1,3 @@
-from __future__ import annotations
 
 """Post-generation citation verification (no extra LLM call).
 
