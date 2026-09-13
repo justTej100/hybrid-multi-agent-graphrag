@@ -7,11 +7,9 @@ Wires the four agents into a LangGraph state machine:
          ^                                             |
          |______________ retry (fail) ________________|
 
-All four agents use LangChain (LCEL chains + tool-calling). LLM provider
-is switchable between Google Gemini and DeepSeek via the LLM_PROVIDER
-env var (or by editing DEFAULT_PROVIDER below). Both are standard
-LangChain chat models, so bind_tools / with_structured_output / LCEL all
-work the same way regardless of provider.
+QueryAgent now hits real Argus retrieval (ai.langchain_store +
+db.client.get_scope_document_ids), so this graph must be run with
+`.ainvoke()` — all four nodes are async.
 
 Install what you need:
     pip install langgraph langchain-core langchain-google-genai langchain-openai pydantic
@@ -19,12 +17,9 @@ Install what you need:
 Env vars:
     LLM_PROVIDER=gemini      GOOGLE_API_KEY=...
     LLM_PROVIDER=deepseek    DEEPSEEK_API_KEY=...
-
-Note: tool-calling and with_structured_output require a model that
-supports function calling. Gemini 1.5 Pro/Flash and DeepSeek-chat (v2.5+)
-both do.
 """
 
+import asyncio
 import os
 from typing import TypedDict, Literal, Optional
 
@@ -48,15 +43,12 @@ def get_llm(provider: Optional[str] = None):
         from langchain_google_genai import ChatGoogleGenerativeAI
 
         return ChatGoogleGenerativeAI(
-            model="gemini-1.5-pro",  # or "gemini-1.5-flash" for cheaper/faster
+            model="gemini-1.5-pro",
             temperature=0,
             google_api_key=os.getenv("GOOGLE_API_KEY"),
         )
 
     if provider == "deepseek":
-        # DeepSeek exposes an OpenAI-compatible API, so ChatOpenAI works
-        # with a custom base_url. DeepSeek supports function calling on
-        # deepseek-chat (v2.5+).
         from langchain_openai import ChatOpenAI
 
         return ChatOpenAI(
@@ -75,9 +67,10 @@ def get_llm(provider: Optional[str] = None):
 class PipelineState(TypedDict):
     user_input: str
     mode: Literal["answer", "quiz"]
+    scope: Optional[dict]  # e.g. {"type": "library"} or {"type": "document", "document_id": "..."}
 
     refined_query: Optional[str]
-    retrieved_chunks: Optional[list[str]]
+    retrieved_chunks: Optional[list[dict]]  # structured chunk dicts (page_number, text, ...)
     retrieved_graph_facts: Optional[list[str]]
 
     draft_response: Optional[str]
@@ -97,7 +90,7 @@ def build_pipeline(provider: Optional[str] = None):
     graph = StateGraph(PipelineState)
 
     graph.add_node("refiner", make_refiner_node(llm))
-    graph.add_node("query", make_query_node(llm))       # needs llm now (tool-calling)
+    graph.add_node("query", make_query_node(llm))
     graph.add_node("response", make_response_node(llm))
     graph.add_node("eval", make_eval_node(llm))
 
@@ -121,12 +114,13 @@ def build_pipeline(provider: Optional[str] = None):
 # ---------------------------------------------------------------------------
 # Example run
 # ---------------------------------------------------------------------------
-if __name__ == "__main__":
+async def main() -> None:
     app = build_pipeline()  # uses LLM_PROVIDER env var, defaults to "gemini"
 
     initial_state: PipelineState = {
         "user_input": "What were the main risk factors mentioned across the reports?",
         "mode": "answer",
+        "scope": {"type": "library"},
         "refined_query": None,
         "retrieved_chunks": None,
         "retrieved_graph_facts": None,
@@ -136,5 +130,9 @@ if __name__ == "__main__":
         "retry_count": 0,
     }
 
-    final_state = app.invoke(initial_state)
+    final_state = await app.ainvoke(initial_state)
     print(final_state["draft_response"])
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

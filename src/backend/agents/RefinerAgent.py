@@ -39,14 +39,12 @@ QUIZ_PROMPT = ChatPromptTemplate.from_messages(
 
 def make_refiner_node(llm) -> Callable[[dict], dict]:
     """
-    Returns a LangGraph node function bound to the given LLM client
-    (ChatGoogleGenerativeAI, ChatOpenAI/DeepSeek, etc. — any LangChain
-    chat model works here).
+    Returns an async LangGraph node function bound to the given LLM client.
     """
     answer_chain = ANSWER_PROMPT | llm | StrOutputParser()
     quiz_chain = QUIZ_PROMPT | llm | StrOutputParser()
 
-    def refiner_agent(state: dict) -> dict:
+    async def refiner_agent(state: dict) -> dict:
         feedback_note = (
             f"Previous attempt failed because: {state['eval_feedback']}. "
             "Adjust the query to fix this."
@@ -55,7 +53,7 @@ def make_refiner_node(llm) -> Callable[[dict], dict]:
         )
 
         chain = answer_chain if state["mode"] == "answer" else quiz_chain
-        refined = chain.invoke(
+        refined = await chain.ainvoke(
             {"user_input": state["user_input"], "feedback_note": feedback_note}
         )
 
