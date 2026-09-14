@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Session-cookie authentication helpers.
+"""Session-cookie auth helpers + Google OAuth routes + /me + /logout.
 
 Google OAuth accepts any signed-in Google account. ADMIN_EMAIL (comma-separated)
 marks admin users who get unlimited chat and mutation/admin routes.
@@ -9,13 +9,20 @@ marks admin users who get unlimited chat and mutation/admin routes.
 import os
 from time import time
 
-from fastapi import HTTPException, Request, Response
+from authlib.integrations.starlette_client import OAuth
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
+
+from router.rate_limit import get_chat_usage, usage_status
 
 COOKIE_NAME = 'argus_session'
 MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 
 
+# ---------------------------------------------------------------------------
+# Session-cookie helpers (used as FastAPI dependencies by other routers)
+# ---------------------------------------------------------------------------
 def _signer() -> TimestampSigner:
     """Return the signer used for the session cookie."""
     secret = os.environ.get('SECRET_KEY') or 'dev-argus-secret'
@@ -137,3 +144,64 @@ def require_admin(request: Request) -> None:
     email = get_session_email(request)
     if not is_admin_email(email):
         raise HTTPException(status_code=403, detail='Admin access required.')
+
+
+# ---------------------------------------------------------------------------
+# OAuth client + routes
+# ---------------------------------------------------------------------------
+oauth = OAuth()
+oauth.register(
+    name='google',
+    client_id=os.environ.get('GOOGLE_CLIENT_ID'),
+    client_secret=os.environ.get('GOOGLE_CLIENT_SECRET'),
+    server_metadata_url='https://accounts.google.com/.well-known/openid-configuration',
+    client_kwargs={'scope': 'openid email profile'},
+)
+
+router = APIRouter(tags=['Auth'])
+
+
+@router.get('/auth/google')
+async def auth_google(request: Request):
+    redirect_uri = os.environ.get('GOOGLE_REDIRECT_URI')
+    if not redirect_uri:
+        raise HTTPException(status_code=500, detail='GOOGLE_REDIRECT_URI is not configured.')
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+
+@router.get('/auth/google/callback')
+async def auth_google_callback(request: Request):
+    try:
+        token = await oauth.google.authorize_access_token(request)
+        userinfo = token.get('userinfo')
+        if not userinfo:
+            userinfo = await oauth.google.parse_id_token(request, token)
+        email = normalize_login_email(userinfo.get('email') if userinfo else None)
+        response = RedirectResponse(url='/', status_code=302)
+        set_session_cookie(response, email)
+        return response
+    except HTTPException as exc:
+        if exc.status_code == 400:
+            return RedirectResponse(url='/login?error=oauth_failed', status_code=302)
+        raise
+    except Exception:
+        return RedirectResponse(url='/login?error=oauth_failed', status_code=302)
+
+
+@router.get('/logout')
+def logout() -> RedirectResponse:
+    response = RedirectResponse(url='/login', status_code=302)
+    clear_session_cookie(response)
+    return response
+
+
+@router.get('/me', dependencies=[Depends(require_session)])
+async def me(request: Request) -> dict:
+    email = get_session_email(request) or ''
+    admin = is_admin_email(email)
+    usage = await get_chat_usage(email) if email else {}
+    return {
+        'email': email,
+        'is_admin': admin,
+        'chat': usage_status(usage, is_admin=admin),
+    }
