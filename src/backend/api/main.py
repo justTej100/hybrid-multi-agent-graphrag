@@ -3,6 +3,7 @@ from __future__ import annotations
 """FastAPI backend for Argus — API routes + React SPA."""
 
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -82,6 +83,12 @@ async def spa_study() -> FileResponse:
 async def spa_admin() -> FileResponse:
     return _spa_index()
 
+
+
+
+@app.get('/health')
+def health() -> dict:
+    return {'status': 'ok', 'timestamp': time.time()}
 
 _assets_dir = FRONTEND_DIST / 'assets'
 if _assets_dir.is_dir():
