@@ -27,7 +27,8 @@ class KnowledgeGraphAdapter:
         neo4j_uri: str,
         neo4j_username: str,
         neo4j_password: str,
-        deepseek_api_key: str,
+        deepseek_api_key: str | None = None,
+        extractor=None,
     ):
 
         self.neo4j = Neo4jClient(
@@ -36,8 +37,8 @@ class KnowledgeGraphAdapter:
             password=neo4j_password,
         )
 
-        self.extractor = GraphExtractor(
-            api_key=deepseek_api_key,
+        self.extractor = extractor or GraphExtractor(
+            api_key=deepseek_api_key or '',
         )
 
         self.resolver = EntityResolver()
@@ -96,12 +97,18 @@ class KnowledgeGraphAdapter:
         self,
         concept: str,
         limit: int = 10,
+        book_id: str | None = None,
     ):
-
+        """Find relationships whose entity names appear in the query, or vice versa."""
         return self.neo4j.query(
             """
             MATCH (a:Entity)-[r]->(b:Entity)
-            WHERE toLower(a.name) CONTAINS toLower($concept)
+            WHERE (
+                toLower($concept) CONTAINS toLower(a.name)
+                OR toLower(a.name) CONTAINS toLower($concept)
+                OR toLower($concept) CONTAINS toLower(b.name)
+            )
+            AND ($book_id IS NULL OR a.book_id = $book_id)
             RETURN
                 a.name AS source,
                 type(r) AS relationship,
@@ -112,6 +119,7 @@ class KnowledgeGraphAdapter:
             {
                 "concept": concept,
                 "limit": limit,
+                "book_id": book_id,
             },
         )
 

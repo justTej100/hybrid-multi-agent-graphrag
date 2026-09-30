@@ -38,6 +38,22 @@ class PDFStorage:
 
         return storage_path
 
+    def upload_bytes(
+        self,
+        data: bytes,
+        storage_path: str,
+        content_type: str = "application/pdf",
+    ) -> str:
+        self.client.storage.from_(self.bucket).upload(
+            storage_path,
+            data,
+            {"content-type": content_type, "upsert": "true"},
+        )
+        return storage_path
+
+    def download_bytes(self, storage_path: str) -> bytes:
+        return self.client.storage.from_(self.bucket).download(storage_path)
+
     def download(
         self,
         storage_path: str,

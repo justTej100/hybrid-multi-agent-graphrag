@@ -15,25 +15,24 @@ The adapters act as the main API between the rest of the application and the und
 ```text
 db/
 │
+├── schema.sql
+├── client.py              # async facade (Postgres, or in-memory when DATABASE_URL is unset)
+├── subscriptions.py       # flashcard signup
 ├── PostgresAdapter.py
-├── PGvectorAdapter.py
+├── PGVectorAdapter.py
 ├── KnowledgeGraphAdapter.py
+├── pdf.py                 # page text extraction
+├── storage.py             # Supabase Storage client used by the top-level storage module
 │
 ├── vector/
 │   ├── embeddings.py
-│   ├── chunking.py
-│   └── ...
+│   └── chunking.py
 │
 ├── knowledge_graph/
 │   ├── extractor.py
 │   ├── resolver.py
-│   ├── neo4j.py
-│   └── ...
+│   └── neo4j.py
 │
-├── pdf.py
-├── storage.py
-├── uploadPDF.py
-├── schema.sql
 └── README.md
 ```
 
@@ -193,4 +192,4 @@ for Neo4j and graph-specific implementation.
 
 ## `vector/`
 
-Contains implementation detai
+Contains the embedding client and the page chunker used during ingestion. `chunking.py` emits `chunk_id`, `document_id`, `page_number`, and `content`, which is the shape `PostgresAdapter.add_chunks` stores. Embeddings are 3072-dimensional so they match `vector_chunks.embedding`.
