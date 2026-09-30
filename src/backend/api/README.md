@@ -1,44 +1,17 @@
-# `api/` — Backend structure
+# api
 
-FastAPI backend for Argus. Run it from `src/backend`:
+This folder is the FastAPI application. `main.py` builds the app. `schemas.py` holds the request and response models the routers share. `routers` holds one module per area of the product.
 
-```bash
-uvicorn api.main:app --reload --port 8000
-```
+The process starts here. On startup the lifespan calls `db.client.init_schema`, which creates tables when Postgres is configured. On shutdown it closes pools. Middleware allows credentialed browser calls and signed session cookies. Each router is mounted with no extra path prefix, so routes such as `/chat` and `/documents` are the public URLs.
 
-`main.py` only wires things together. Routes live in `routers/`. Shared services (database, storage, mail, ingestion, the study pipeline) live next to `api/`, not inside it.
+When `DATABASE_URL` is unset, document, subscription, usage, and session calls stay in memory. When it is set, those calls go to Postgres. Neo4j work stays off unless `kg_enabled` is true.
 
-```text
-src/backend/
-├── config.py                 # env loading, model helpers, kg_enabled()
-├── citations.py              # [pN] parsing and link generation
-├── jobs.py                   # PDF ingestion (extract, chunk, embed, optional graph)
-├── storage.py                # local uploaded_pdfs/ or Supabase via db.storage.PDFStorage
-├── mail/gmail.py             # flashcard email
-├── agents/                   # LangGraph study pipeline (see agents/README.md)
-├── db/                       # Postgres, pgvector, Neo4j adapters (see db/README.md)
-└── api/
-    ├── main.py               # app, lifespan, middleware, SPA
-    ├── schemas.py            # shared Pydantic models
-    └── routers/
-        ├── auth.py           # session cookie, Google OAuth, /me, /logout
-        ├── documents.py      # upload, list, status, delete, file, flashcards-open
-        ├── chat.py           # /chat and /search
-        ├── flashcards.py     # email, offers, subscribe, broadcast
-        ├── admin.py          # config, stats, chunk inspection
-        └── rate_limit.py     # guest cooldown and daily cap
-```
+## Files
 
-## `main.py`
+`__init__.py` marks this folder as a Python package so `api.main` can be imported.
 
-- Loads settings through `config.py` (repo-root `.env`)
-- On startup calls `db.client.init_schema()`
-- Mounts the routers
-- Serves the React build from `src/frontend/dist` for `/`, `/login`, `/study`, and `/admin`
-- `GET /health`
+`main.py` creates the FastAPI app, loads settings by importing `config`, and mounts the routers for auth, documents, chat, flashcards, admin, and graph. `GET /health` returns a status payload for process checks. For a normal browser visit it returns `src/frontend/dist/index.html` on the site paths `/`, `/login`, `/library`, `/study`, `/quiz`, `/flashcards`, and `/admin`. Built JS and CSS are served from `src/frontend/dist/assets`. The graph path is special and is documented in the routers readme, because the same path also returns JSON.
 
-When `DATABASE_URL` is unset, documents, chunks, subscriptions, and chat usage stay in memory. When it is set, those calls go to Postgres. Ingestion also writes embeddings. Neo4j extraction runs only when `kg_enabled()` is true (`NEO4J_URI`, `NEO4J_PASSWORD`, and `DEEPSEEK_API_KEY`).
+`schemas.py` defines the chat message, the library or single-document scope, the chat request, and the study response the frontend already expects. The chat request may include a session id so an admin follow-up stays on the same thread. Quiz and flashcard payloads ride along in the structured field of the study response.
 
-## Import convention
-
-Routers import each other as `api.routers.X` and shared models as `api.schemas`. Everything else is a top-level package on `src/backend` (`db`, `agents`, `jobs`, `storage`, `mail`, `citations`, `config`).
+Routers import each other as `api.routers` and shared models as `api.schemas`. Database, agents, jobs, storage, mail, and citations are imported as top-level packages because `src/backend` is the import root.
