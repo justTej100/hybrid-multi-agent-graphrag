@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
 from itsdangerous import BadSignature, SignatureExpired, TimestampSigner
 
-from router.rate_limit import get_chat_usage, usage_status
+from api.routers.rate_limit import get_chat_usage, usage_status
 
 COOKIE_NAME = 'argus_session'
 MAX_AGE_SECONDS = 60 * 60 * 24 * 30

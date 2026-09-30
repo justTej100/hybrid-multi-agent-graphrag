@@ -4,21 +4,18 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from agents.Pipeline import ResearchPipeline
-from ai.clients import GeminiAPIError
+from agents.service import LLMError, run_study
+from api.routers.auth import get_session_email, is_admin_email, require_session
+from api.routers.rate_limit import check_and_record_chat
+from api.schemas import ChatRequest, EvalResponse, StudyResponse
 from mail.gmail import EmailNotConfiguredError, send_flashcards_email
-from router.auth import get_session_email, is_admin_email, require_session
-from router.rate_limit import check_and_record_chat
-from schemas import ChatRequest, EvalResponse, StudyResponse
 
 router = APIRouter(tags=['Study'])
-
-pipeline = ResearchPipeline()
 
 
 @router.post('/chat', response_model=StudyResponse, dependencies=[Depends(require_session)])
 async def chat(request: Request, body: ChatRequest) -> StudyResponse:
-    user_messages = [m for m in body.messages if m.role == 'user']
+    user_messages = [message for message in body.messages if message.role == 'user']
     if not user_messages:
         raise HTTPException(status_code=400, detail='At least one user message is required.')
 
@@ -26,28 +23,21 @@ async def chat(request: Request, body: ChatRequest) -> StudyResponse:
     await check_and_record_chat(email, is_admin=is_admin_email(email))
 
     query = user_messages[-1].content
-    history = [{'role': m.role, 'content': m.content} for m in body.messages[:-1]] or None
+    history = [{'role': message.role, 'content': message.content} for message in body.messages[:-1]] or None
     scope = body.scope.model_dump()
 
     try:
-        result = await pipeline.run(
-            query=query,
-            query_type='study',
-            conversation_history=history,
-            scope=scope,
-            mode=body.mode,
-        )
+        result = await run_study(query=query, history=history, scope=scope, mode=body.mode)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except GeminiAPIError as exc:
-        status_code = exc.status_code if exc.status_code in {429, 503, 502} else 502
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    except LLMError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     study_response = StudyResponse(
         query=result.query,
         type=result.query_type,
         brief=result.brief,
-        eval=EvalResponse(**vars(result.eval)),
+        eval=EvalResponse(**result.eval),
         sources=result.sources,
         meta=result.meta,
         structured=result.structured,

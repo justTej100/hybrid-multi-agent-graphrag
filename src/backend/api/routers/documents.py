@@ -5,11 +5,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import Response as FastAPIResponse
 
+from api.routers.auth import require_admin, require_session
+from api.schemas import BulkDeleteRequest, FlashcardOpenRequest
 from db.client import create_document, delete_document, get_document, list_documents, update_document_status
 from db.subscriptions import set_flashcards_open
 from jobs import schedule_ingestion
-from router.auth import require_admin, require_session
-from schemas import BulkDeleteRequest, FlashcardOpenRequest
 from storage import delete_pdf, download_pdf, upload_pdf
 
 router = APIRouter(prefix='/documents', tags=['Documents'])
@@ -40,7 +40,7 @@ async def upload_document(
     )
     storage_path = upload_pdf(document_id, filename or f'{document_id}.pdf', payload)
     await update_document_status(document_id, status='processing', storage_path=storage_path)
-    job_id = schedule_ingestion(document_id, storage_path)
+    job_id = await schedule_ingestion(document_id, storage_path)
     return {'id': document_id, 'status': 'processing', 'job_id': job_id}
 
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from db.client import get_document, list_documents
-from router.auth import require_admin
+from api.routers.auth import require_admin
+from db.client import count_vectors, count_vectors_for_document, get_document, list_documents, sample_chunks
 from storage import supabase_dashboard_urls
 
 router = APIRouter(prefix='/admin', tags=['Admin'], dependencies=[Depends(require_admin)])
@@ -22,8 +22,6 @@ async def admin_config() -> dict:
 
 @router.get('/stats')
 async def admin_stats() -> dict:
-    from ai.langchain_store import count_vectors, count_vectors_for_document
-
     docs = await list_documents()
     total_vectors = await count_vectors()
     per_doc = []
@@ -48,10 +46,8 @@ async def admin_stats() -> dict:
 
 @router.get('/documents/{document_id}/chunks')
 async def admin_document_chunks(document_id: str, limit: int = 5) -> dict:
-    from ai.langchain_store import sample_vectors
-
     document = await get_document(document_id)
     if not document:
         raise HTTPException(status_code=404, detail='Document not found.')
-    chunks = await sample_vectors(document_id, limit=min(limit, 20))
+    chunks = await sample_chunks(document_id, limit=min(limit, 20))
     return {'document_id': document_id, 'title': document['title'], 'chunks': chunks}

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from api.routers.auth import get_session_email, require_admin, require_session
+from api.schemas import FlashcardBroadcastRequest, FlashcardEmailRequest, FlashcardSubscribeRequest
 from db.client import get_document
 from db.subscriptions import (
     list_flashcard_offers,
@@ -12,8 +14,6 @@ from db.subscriptions import (
     unsubscribe as unsubscribe_flashcards,
 )
 from mail.gmail import EmailNotConfiguredError, send_flashcards_email
-from router.auth import get_session_email, require_admin, require_session
-from schemas import FlashcardBroadcastRequest, FlashcardEmailRequest, FlashcardSubscribeRequest
 
 router = APIRouter(prefix='/flashcards', tags=['Flashcards'])
 

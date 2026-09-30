@@ -1,91 +1,44 @@
 # `api/` — Backend structure
 
-FastAPI backend for Argus. `main.py` only wires things together; every
-route, model, and helper lives inside `router/`.
+FastAPI backend for Argus. Run it from `src/backend`:
 
+```bash
+uvicorn api.main:app --reload --port 8000
 ```
-api/
-├── main.py               # App creation, lifespan, middleware, router mounting, SPA serving
-├── schemas.py            # All Pydantic request/response models, shared across routers
-└── router/
-    ├── __init__.py
-    ├── auth.py            # Session-cookie helpers + Google OAuth + /me + /logout
-    ├── documents.py       # Upload, list, status, delete, bulk-delete, file download, flashcards-open
-    ├── chat.py            # /chat and /search (study Q&A pipeline)
-    ├── flashcards.py      # Flashcard email, subscribe/unsubscribe, admin broadcast
-    ├── admin.py           # Admin dashboard: config, stats, chunk inspection
-    ├── meta.py            # /health
-    ├── citations.py       # [pN] page-citation parsing/linking (used across routers + eval)
-    └── rate_limit.py      # Guest chat cooldown + daily cap
+
+`main.py` only wires things together. Routes live in `routers/`. Shared services (database, storage, mail, ingestion, the study pipeline) live next to `api/`, not inside it.
+
+```text
+src/backend/
+├── config.py                 # env loading, model helpers, kg_enabled()
+├── citations.py              # [pN] parsing and link generation
+├── jobs.py                   # PDF ingestion (extract, chunk, embed, optional graph)
+├── storage.py                # local uploaded_pdfs/ or Supabase via db.storage.PDFStorage
+├── mail/gmail.py             # flashcard email
+├── agents/                   # LangGraph study pipeline (see agents/README.md)
+├── db/                       # Postgres, pgvector, Neo4j adapters (see db/README.md)
+└── api/
+    ├── main.py               # app, lifespan, middleware, SPA
+    ├── schemas.py            # shared Pydantic models
+    └── routers/
+        ├── auth.py           # session cookie, Google OAuth, /me, /logout
+        ├── documents.py      # upload, list, status, delete, file, flashcards-open
+        ├── chat.py           # /chat and /search
+        ├── flashcards.py     # email, offers, subscribe, broadcast
+        ├── admin.py          # config, stats, chunk inspection
+        └── rate_limit.py     # guest cooldown and daily cap
 ```
 
 ## `main.py`
 
-Owns app-level concerns only:
-- Creates the `FastAPI` app and lifespan (`init_schema`, `ensure_vector_table` on startup)
-- Registers `CORSMiddleware` and `SessionMiddleware`
-- Includes every router from `router/`
-- Serves the React SPA (`/`, `/login`, `/study`, `/admin` → `index.html`) and mounts `/assets`
+- Loads settings through `config.py` (repo-root `.env`)
+- On startup calls `db.client.init_schema()`
+- Mounts the routers
+- Serves the React build from `src/frontend/dist` for `/`, `/login`, `/study`, and `/admin`
+- `GET /health`
 
-It has no route logic of its own beyond SPA fallback — if you're looking
-for an actual API endpoint's implementation, it's in `router/`.
-
-## `schemas.py`
-
-Every Pydantic model shared across more than one router: `ChatRequest`,
-`Scope`, `StudyResponse`, `EvalResponse`, the flashcard request bodies, and
-`BulkDeleteRequest`. Kept at the top level (not inside `router/`) since it's
-pure data shape, not a router.
-
-## `router/`
-
-### `auth.py`
-Two things live here together because they're both "auth":
-- **Session helpers** (`require_session`, `require_admin`, `get_session_email`,
-  `set_session_cookie`, etc.) — imported as FastAPI dependencies by every
-  other router that needs to gate a route.
-- **Routes**: `GET /auth/google`, `GET /auth/google/callback`, `GET /logout`,
-  `GET /me`.
-
-### `documents.py`
-Everything that treats a document as a resource: `GET/POST /documents`,
-`GET /documents/{id}/status`, `DELETE /documents/{id}`,
-`POST /documents/bulk-delete`, `GET /documents/{id}/file`,
-`PATCH /documents/{id}/flashcards-open`.
-
-### `chat.py`
-The study/tutoring endpoints: `POST /chat` (runs the RAG pipeline via
-`agents.Pipeline.ResearchPipeline`) and `POST /search` (alias for `/chat`).
-Also owns the "email flashcards after a flashcard-mode chat" side effect.
-
-### `flashcards.py`
-Everything about flashcard delivery and subscriptions:
-`POST /flashcards/email`, `GET /flashcards/offers`,
-`POST /flashcards/subscribe`, `POST /flashcards/unsubscribe`,
-`POST /flashcards/broadcast`. (Toggling whether flashcards are open for a
-document lives in `documents.py` instead, since it mutates a document field.)
-
-### `admin.py`
-Admin-only dashboard data: `GET /admin/config`, `GET /admin/stats`,
-`GET /admin/documents/{id}/chunks`. All routes here require admin via a
-router-level dependency.
-
-### `meta.py`
-Just `GET /health`.
-
-### `citations.py`
-Not a router — a utility module for parsing/generating `[pN]` page-citation
-tags. Used by `chat.py`'s pipeline results, `EvalAgent`-style checks, and
-flashcard emails.
-
-### `rate_limit.py`
-Not a router — guest chat cooldown + daily cap logic (`chat_usage` table or
-in-memory fallback). Used by `chat.py` and `auth.py` (`/me`'s usage status).
+When `DATABASE_URL` is unset, documents, chunks, subscriptions, and chat usage stay in memory. When it is set, those calls go to Postgres. Ingestion also writes embeddings. Neo4j extraction runs only when `kg_enabled()` is true (`NEO4J_URI`, `NEO4J_PASSWORD`, and `DEEPSEEK_API_KEY`).
 
 ## Import convention
 
-Anything inside `router/` that needs another router-local module imports it
-as `router.X` (e.g. `from router.auth import require_session`). Anything
-that needs `schemas.py` imports it as a top-level module
-(`from schemas import ChatRequest`), since `schemas.py` sits next to
-`main.py`, not inside `router/`.
+Routers import each other as `api.routers.X` and shared models as `api.schemas`. Everything else is a top-level package on `src/backend` (`db`, `agents`, `jobs`, `storage`, `mail`, `citations`, `config`).

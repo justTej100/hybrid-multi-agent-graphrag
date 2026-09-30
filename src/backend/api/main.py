@@ -7,33 +7,24 @@ import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
-from router import admin, auth, chat, documents, flashcards, meta
-from db.client import init_schema
+import config  # noqa: F401  loads the repo-root .env
+from api.routers import admin, auth, chat, documents, flashcards
+from db.client import init_schema, shutdown
 
-load_dotenv(Path(__file__).parent / '.env')
-
-FRONTEND_DIST = Path(__file__).parent / 'frontend' / 'dist'
+FRONTEND_DIST = Path(__file__).resolve().parents[2] / 'frontend' / 'dist'
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_schema()
-    try:
-        from ai.langchain_store import ensure_vector_table
-
-        await ensure_vector_table()
-    except Exception as exc:
-        import logging
-
-        logging.getLogger(__name__).warning('Vector table init skipped: %s', exc)
     yield
+    await shutdown()
 
 
 app = FastAPI(title='Argus Study Buddy', version='3.0.0', lifespan=lifespan)
@@ -46,7 +37,6 @@ app.add_middleware(
 )
 app.add_middleware(SessionMiddleware, secret_key=os.environ.get('SECRET_KEY', 'dev-argus-secret'))
 
-app.include_router(meta.router)
 app.include_router(auth.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
@@ -59,7 +49,7 @@ def _spa_index() -> FileResponse:
     if not index.is_file():
         raise HTTPException(
             status_code=503,
-            detail='Frontend not built. Run: cd frontend && npm install && npm run build',
+            detail='Frontend not built. Run: cd src/frontend && npm install && npm run build',
         )
     return FileResponse(index)
 
@@ -84,11 +74,10 @@ async def spa_admin() -> FileResponse:
     return _spa_index()
 
 
-
-
 @app.get('/health')
 def health() -> dict:
     return {'status': 'ok', 'timestamp': time.time()}
+
 
 _assets_dir = FRONTEND_DIST / 'assets'
 if _assets_dir.is_dir():
