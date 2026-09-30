@@ -355,3 +355,91 @@ async def sample_chunks(document_id: str, limit: int = 5) -> list[dict[str, Any]
             }
         )
     return samples
+
+
+def _public_session(session: dict[str, Any], include_messages: bool) -> dict[str, Any]:
+    payload = {
+        'id': str(session['id']),
+        'email': session['email'],
+        'title': session['title'],
+        'mode': session['mode'],
+        'scope': session.get('scope') or {},
+        'updated_at': session['updated_at'],
+        'message_count': session.get('message_count', len(session.get('messages') or [])),
+    }
+    if include_messages:
+        payload['messages'] = [
+            {
+                'id': str(message['id']),
+                'role': message['role'],
+                'content': message['content'],
+                'sources': message.get('sources'),
+                'structured': message.get('structured'),
+                'created_at': message['created_at'],
+            }
+            for message in session.get('messages') or []
+        ]
+    return payload
+
+
+async def create_study_session(email: str, title: str, mode: str, scope: dict) -> str:
+    if not using_postgres():
+        session_id = str(uuid4())
+        _memory_sessions[session_id] = {
+            'id': session_id,
+            'email': email,
+            'title': title[:160] or 'Study',
+            'mode': mode,
+            'scope': scope,
+            'updated_at': datetime.now(timezone.utc),
+            'messages': [],
+        }
+        return session_id
+    return await asyncio.to_thread(_postgres().create_study_session, email, title[:160] or 'Study', mode, scope)
+
+
+async def append_study_message(
+    session_id: str,
+    role: str,
+    content: str,
+    sources: list | None = None,
+    structured: dict | None = None,
+) -> None:
+    if not using_postgres():
+        session = _memory_sessions.get(session_id)
+        if session is None:
+            return
+        session['messages'].append(
+            {
+                'id': str(uuid4()),
+                'role': role,
+                'content': content,
+                'sources': sources,
+                'structured': structured,
+                'created_at': datetime.now(timezone.utc),
+            }
+        )
+        session['updated_at'] = datetime.now(timezone.utc)
+        return
+    await asyncio.to_thread(_postgres().append_study_message, session_id, role, content, sources, structured)
+
+
+async def list_study_sessions(email: str) -> list[dict[str, Any]]:
+    if not using_postgres():
+        rows = [session for session in _memory_sessions.values() if session['email'] == email]
+        rows.sort(key=lambda session: session['updated_at'], reverse=True)
+        return [_public_session(session, include_messages=False) for session in rows]
+    rows = await asyncio.to_thread(_postgres().list_study_sessions, email)
+    return [_public_session(row, include_messages=False) for row in rows]
+
+
+async def get_study_session(session_id: str, email: str) -> dict[str, Any] | None:
+    if not using_postgres():
+        session = _memory_sessions.get(session_id)
+        if session is None or session['email'] != email:
+            return None
+        return _public_session(session, include_messages=True)
+    row = await asyncio.to_thread(_postgres().get_study_session, session_id, email)
+    if row is None:
+        return None
+    return _public_session(row, include_messages=True)

@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 import config  # noqa: F401  loads the repo-root .env
-from api.routers import admin, auth, chat, documents, flashcards
+from api.routers import admin, auth, chat, documents, flashcards, graph
 from db.client import init_schema, shutdown
 
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / 'frontend' / 'dist'
@@ -42,6 +42,7 @@ app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(flashcards.router)
 app.include_router(admin.router)
+app.include_router(graph.router)
 
 
 def _spa_index() -> FileResponse:
@@ -71,6 +72,21 @@ async def spa_study() -> FileResponse:
 
 @app.get('/admin')
 async def spa_admin() -> FileResponse:
+    return _spa_index()
+
+
+@app.get('/library')
+async def spa_library() -> FileResponse:
+    return _spa_index()
+
+
+@app.get('/quiz')
+async def spa_quiz() -> FileResponse:
+    return _spa_index()
+
+
+@app.get('/flashcards')
+async def spa_flashcards() -> FileResponse:
     return _spa_index()
 
 
