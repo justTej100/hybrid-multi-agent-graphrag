@@ -5,7 +5,7 @@ import pytest
 from psycopg.rows import dict_row
 
 from fakes import make_pdf
-from tests.integration.conftest import NEO4J_PASSWORD, NEO4J_URI, POSTGRES_URL, neo4j_or_skip
+from integration_services import NEO4J_PASSWORD, NEO4J_URI, POSTGRES_URL, neo4j_or_skip
 
 pytestmark = pytest.mark.integration
 
