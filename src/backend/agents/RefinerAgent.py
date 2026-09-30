@@ -52,7 +52,7 @@ def make_refiner_node(llm) -> Callable[[dict], dict]:
             else ""
         )
 
-        chain = answer_chain if state["mode"] == "answer" else quiz_chain
+        chain = quiz_chain if state.get("mode") in {"quiz", "flashcards"} else answer_chain
         refined = await chain.ainvoke(
             {"user_input": state["user_input"], "feedback_note": feedback_note}
         )
