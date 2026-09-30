@@ -15,6 +15,8 @@ export default defineConfig({
       '/health': 'http://localhost:8000',
       '/admin': 'http://localhost:8000',
       '/me': 'http://localhost:8000',
+      '/graph': 'http://localhost:8000',
+      '/sessions': 'http://localhost:8000',
     },
   },
   build: {

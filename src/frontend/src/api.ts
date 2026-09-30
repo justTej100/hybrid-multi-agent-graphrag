@@ -102,6 +102,7 @@ export function chat(
   mode: StudyMode,
   scope: Scope,
   emailFlashcards = false,
+  sessionId?: string | null,
 ): Promise<StudyResponse> {
   return request<StudyResponse>('/chat', {
     method: 'POST',
@@ -110,8 +111,63 @@ export function chat(
       mode,
       scope,
       email_flashcards: emailFlashcards,
+      session_id: sessionId || undefined,
     }),
   });
+}
+
+export type StudySessionSummary = {
+  id: string;
+  title: string;
+  mode: string;
+  updated_at: string;
+  message_count: number;
+};
+
+export type StoredMessage = ChatMessage & {
+  id: string;
+  sources?: Source[] | null;
+  structured?: Record<string, unknown> | null;
+};
+
+export type StudySession = StudySessionSummary & {
+  scope: Scope;
+  messages: StoredMessage[];
+};
+
+export function listSessions(): Promise<StudySessionSummary[]> {
+  return request<StudySessionSummary[]>('/sessions');
+}
+
+export function getSession(id: string): Promise<StudySession> {
+  return request<StudySession>(`/sessions/${encodeURIComponent(id)}`);
+}
+
+export type GraphNode = {
+  name: string;
+  type?: string | null;
+  description?: string | null;
+  book_id?: string | null;
+  page_number?: number | null;
+};
+
+export type GraphEdge = {
+  source: string;
+  relationship: string;
+  target: string;
+  evidence?: string | null;
+  book_id?: string | null;
+  page_number?: number | null;
+};
+
+export type GraphView = {
+  enabled: boolean;
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+};
+
+export function getGraph(): Promise<GraphView> {
+  return request<GraphView>('/graph', { headers: { Accept: 'application/json' } });
 }
 
 export function emailFlashcards(topic: string, items: unknown[], sources: Source[]): Promise<void> {

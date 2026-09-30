@@ -312,8 +312,8 @@ export default function LibraryPage() {
               </button>
             </>
           )}
-          <Link to="/study" className="btn btn-primary">
-            Study
+          <Link to="/" className="btn btn-primary">
+            Search
           </Link>
         </div>
 

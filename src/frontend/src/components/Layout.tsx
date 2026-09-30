@@ -1,18 +1,29 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { MeProvider, useMe } from '../me';
 
 function NavBar() {
   const me = useMe();
+  const path = useLocation().pathname;
+  const searchActive = path === '/' || path === '/study';
 
   return (
     <nav className="nav">
       <span className="nav-brand">ARGUS</span>
       <div className="nav-links">
-        <NavLink to="/" end className={({ isActive }) => (isActive ? 'active' : '')}>
+        <NavLink to="/" end className={searchActive ? 'active' : ''}>
+          Search
+        </NavLink>
+        <NavLink to="/library" className={({ isActive }) => (isActive ? 'active' : '')}>
           Library
         </NavLink>
-        <NavLink to="/study" className={({ isActive }) => (isActive ? 'active' : '')}>
-          Study
+        <NavLink to="/quiz" className={({ isActive }) => (isActive ? 'active' : '')}>
+          Quiz
+        </NavLink>
+        <NavLink to="/flashcards" className={({ isActive }) => (isActive ? 'active' : '')}>
+          Flashcards
+        </NavLink>
+        <NavLink to="/graph" className={({ isActive }) => (isActive ? 'active' : '')}>
+          Graph
         </NavLink>
         {me?.is_admin && (
           <NavLink to="/admin" className={({ isActive }) => (isActive ? 'active' : '')}>
