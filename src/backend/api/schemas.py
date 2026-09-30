@@ -22,6 +22,7 @@ class ChatRequest(BaseModel):
     mode: Literal['chat', 'quiz', 'flashcards', 'summary'] = 'chat'
     scope: Scope = Scope()
     email_flashcards: bool = False
+    session_id: str | None = None
 
 
 class FlashcardEmailRequest(BaseModel):

@@ -123,5 +123,36 @@ class KnowledgeGraphAdapter:
             },
         )
 
+    def list_graph(self, node_limit: int = 200, edge_limit: int = 400) -> dict:
+        """Return a JSON-ready slice of entities and relationships."""
+        nodes = self.neo4j.query(
+            """
+            MATCH (a:Entity)
+            RETURN
+                a.name AS name,
+                a.type AS type,
+                a.description AS description,
+                a.book_id AS book_id,
+                a.page_number AS page_number
+            LIMIT $limit
+            """,
+            {'limit': node_limit},
+        )
+        edges = self.neo4j.query(
+            """
+            MATCH (a:Entity)-[r]->(b:Entity)
+            RETURN
+                a.name AS source,
+                type(r) AS relationship,
+                b.name AS target,
+                r.evidence AS evidence,
+                a.book_id AS book_id,
+                a.page_number AS page_number
+            LIMIT $limit
+            """,
+            {'limit': edge_limit},
+        )
+        return {'nodes': nodes, 'edges': edges}
+
     def close(self):
         self.neo4j.close()

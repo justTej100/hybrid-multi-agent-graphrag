@@ -65,3 +65,30 @@ ON vector_chunks(document_id);
 CREATE INDEX IF NOT EXISTS vector_chunks_embedding_idx
 ON vector_chunks
 USING hnsw ((embedding::halfvec(3072)) halfvec_cosine_ops);
+
+CREATE TABLE IF NOT EXISTS study_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL,
+    title TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    scope JSONB NOT NULL DEFAULT '{}'::jsonb,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS study_messages (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id UUID NOT NULL
+        REFERENCES study_sessions(id)
+        ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    sources JSONB,
+    structured JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS study_sessions_email_idx
+ON study_sessions(email, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS study_messages_session_idx
+ON study_messages(session_id, created_at);

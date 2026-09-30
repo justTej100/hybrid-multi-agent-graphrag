@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 _memory_documents: dict[str, dict[str, Any]] = {}
 _memory_chunks: list[dict[str, Any]] = []
+_memory_sessions: dict[str, dict[str, Any]] = {}
 _pool = None
 _pool_failed = False
 _pg = None
@@ -37,6 +38,7 @@ def reset_memory() -> None:
     global _pool_failed
     _memory_documents.clear()
     _memory_chunks.clear()
+    _memory_sessions.clear()
     _pool_failed = False
 
 
