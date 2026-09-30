@@ -1,76 +1,150 @@
-# Argus
+# Hybrid Multi-Agent GraphRAG
+![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white)
+![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=flat-square&logoColor=white)
+![Gemini](https://img.shields.io/badge/Gemini-8E75B2?style=flat-square&logo=googlegemini&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?style=flat-square&logo=supabase&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white)
 
-Argus is a study app for PDF textbooks you upload. After signing in with Google, you ask a question, get an answer that cites pages, and the textbook opens beside the answer on the cited page. The same library can make a quiz or a flashcard deck. When Neo4j and DeepSeek are configured, ingestion also builds a knowledge graph of concepts and relationships, and a Graph tab lets you read it.
+A full-stack app that uses multiple AI-agents and Graph Retreiveal Augmented Generation to provide a personal assiant that understands various uploaded PDFs. Users can ask questions and get tutor-style answers with page citations. Users can be asked to get quiz on topics related to the PDFs uploaded. 
 
-The app runs without those extra services. If `DATABASE_URL` is empty, documents and chats that must be remembered stay in memory. If Neo4j is not configured, search still uses the textbook text, and the Graph tab says the graph is off.
 
-## What you can do
+---
 
-Search is the home screen. One field, a line saying how many textbooks are ready, and Enter. The question goes to the study screen over the whole library.
+## Features
 
-Study puts the answer on the left and the PDF on the right. The viewer opens on the first source. Page chips such as `[p1]` and the source rows jump the viewer to that page in that book.
+1. **Sign in** with Google (any account; `ADMIN_EMAIL` gets full access)
+2. **Upload** PDF textbooks (admin) → background ingestion extracts text, chunks by page, embeds with Gemini
+3. **Study** in chat, quiz, flashcard, or summary mode — answers cite textbook pages (guests: cooldown + daily chat cap)
+4. **Flashcard signup** — admin opens a textbook for signup; guests subscribe/unsubscribe; admin can email a deck to all subscribers
+5. **View** the PDF in-panel; citation chips jump to the right page
+6. **Inspect** the database on `/admin` (admins only)
 
-Library is the textbook list. Admins upload and delete. Guests can read the list and open a book in Study.
+Citations are **page-level** (`[pN]`), driven by LangChain `Document.metadata.page` on each chunk.
 
-Quiz asks you to name a topic, then shows questions with choice buttons. After you pick, the correct choice is revealed. Citation chips open the PDF beside the question.
+---
 
-Flashcards asks for a topic, then shows cards you click to flip. Citation chips open the PDF. Email me sends the deck to you. An admin can also send it to people who subscribed to that textbook.
+## Example library: Applied Statistics
 
-Graph lists entity names, types, relationship labels, evidence, and page numbers. Clicking a page opens the PDF when the stored book id is a document id.
+This project was scoped down to test against six canonical statistics texts because they overlap enough to make cross-document questions relevant.
 
-Database is admin only. It shows how many documents and vectors exist, and a sample of stored chunks.
+| Book | Authors | Edition |
+|---|---|---|
+| Generalized Linear Models with Examples in R | Dunn & Smyth | 1st (2018) |
+| Mixed Effects Models and Extensions in Ecology with R | Zuur et al. | 1st (2009) |
+| Survival Analysis | Klein & Moeschberger | 2nd (2003) |
+| The Elements of Statistical Learning | Hastie, Tibshirani & Friedman | 2nd (2009) |
+| Bootstrap Methods With Applications in R | Dikta & Scheer | 1st (2021) |
+| Statistical Rethinking | McElreath | 2nd (2019) |
 
-## Who can do what
+A question like "how does bootstrap resampling substitute for asymptotic inference across these texts" pulls from multiple books at once
 
-Anyone with a Google account can sign in.
+---
 
-`ADMIN_EMAIL` is the admin address. More than one address is allowed, separated by commas. Admins upload and delete textbooks, open or close flashcard signup, email a deck to subscribers, open the database page, and skip the guest chat limits.
+## Roadmap
 
-Everyone else is a guest. Guests can search, quiz, and make flashcards. Guest chats wait out a cooldown and stop at a daily cap. That usage counter is stored. The questions and answers are not. A guest thread lives in the browser and disappears on refresh.
+The current pipeline answers questions per document. The direction this project is moving in:
 
-An admin thread is saved. Opening Study without a new question reloads the latest admin thread.
+- **Per-book knowledge graphs**, extracting entities and relationships (models, estimators, assumptions, R implementations) so retrieval can follow a concept across chapters, not just match nearby text.
+- **Cross-book synthesis**, answering questions that span multiple texts by querying each relevant book's graph in parallel and merging the results with attribution.
+- **A lightweight classifier** to route a query to the right book(s) before retrieval runs, so cost scales with relevance, not with library size.
 
-## How a textbook becomes searchable
+None of this is implemented yet. It's listed here so the gap between the name and the code is a stated plan, not a surprise.
 
-1. An admin uploads a PDF from Library. The file goes to local disk or to Supabase Storage.
-2. A background job reads the pages, splits them into chunks, and stores the text.
-3. Each chunk is embedded and stored for similarity search. Embeddings are 3072 numbers so they match the database column.
-4. If the knowledge graph is enabled, each page is mined for entities and relationships and written to Neo4j.
-5. The textbook status becomes ready. If a step fails, the status becomes error and the message is kept.
-6. Search, quiz, flashcards, and summaries only retrieve textbooks that are ready.
 
-Very short page text is treated as a scan warning on the document. The text that could be read is still stored.
+## old Repo layout
 
-## How a question is answered
+```
+argus/
+├── main.py                 # FastAPI app: API routes + serves React build
+├── auth.py                 # Google OAuth + signed session cookies (admin vs guest)
+├── rate_limit.py           # Guest chat cooldown + daily cap
+├── citations.py            # [pN] parsing, validation, email link helpers
+├── storage.py              # PDF files: Supabase Storage or local disk
+├── jobs.py                 # In-process background ingestion (no Redis)
+├── Makefile
+├── requirements.txt
+│
+├── frontend/               # React + Vite UI (Library, Study, Admin, Login)
+│   └── src/
+│       ├── api.ts          # fetch wrappers for backend routes
+│       ├── pages/          # LibraryPage, StudyPage, AdminPage, LoginPage
+│       └── components/     # PdfViewer, ConfirmDeleteModal, …
+│
+├── agents/
+│   ├── Pipeline.py         # Orchestrates LangChain RAG + citation eval
+│   ├── IngestionAgent.py   # PDF → page text → LangChain chunks → vector store
+│   └── EvalAgent.py        # Checks answers are prose + page refs are valid
+│
+├── ai/
+│   ├── langchain_rag.py    # Page splitting + prompt formatting (metadata blocks)
+│   ├── langchain_store.py  # PGVectorStore table `argus_vectors`
+│   ├── langchain_chain.py  # LCEL retrieve → Gemini chat / JSON modes
+│   ├── langchain_embeddings.py
+│   ├── langchain_llm.py
+│   └── clients.py          # Low-level Gemini HTTP (retries, batch embed for tests)
+│
+├── db/
+│   ├── client.py           # `documents` table CRUD + scope resolution
+│   └── schema.sql          # Postgres schema (vectors managed by LangChain)
+│
+├── mail/gmail.py           # Optional flashcard email via Gmail SMTP
+└── tests/
+```
 
-The study pipeline is a small loop of four steps.
+---
 
-1. The refiner turns the student question into a retrieval query.
-2. The query step searches similar chunks. When the graph is enabled it also looks up related concepts.
-3. The response step writes the answer in the requested mode. Modes are chat, quiz, flashcards, and summary. Quiz and flashcards come back as structured data the screens already know how to draw.
-4. The eval step checks that page citations point at real retrieved pages and that the answer stays on that evidence. A failed check sends the question back through the loop. The loop stops after two retries.
-
-The chat route records guest usage first, runs that loop, and then, for an admin only, appends the question and the answer to a study session.
-
-## How to run it
-
-You need Python 3.12 or newer, Node 18 or newer, and a Google account. This repo has been run on Python 3.14.
-
-From the repo root, copy `.env.example` to a file named `.env`. Fill in the keys in the next section before you start the server. The API reads that file on startup.
-
-The smallest set that can sign you in and answer questions is `SECRET_KEY`, `ADMIN_EMAIL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `GEMINI_API_KEY`. Leave `STORAGE_BACKEND` as `local`. You can leave `DATABASE_URL` empty for a first run. Textbooks then live in memory and disappear when the process stops.
-
-If `make` is installed, these three commands are enough.
-
-`make install` creates `.venv` and installs the Python packages from `src/backend/requirements.txt`.
-
-`make frontend` installs the UI packages and builds the React app into `src/frontend/dist`.
-
-`make app` installs dependencies, builds the UI, and starts the API on port 8000.
-
-On Windows without `make`, run this from the repo root instead.
+## Architecture
 
 ```text
+Browser (React)
+    │  session cookie
+    ▼
+FastAPI (main.py)
+    ├── /auth/google          Google OAuth
+    ├── /documents            upload, list, delete PDFs
+    ├── /chat                 LangChain RAG pipeline
+    ├── /admin/*              DB stats (read-only)
+    └── /*                    React SPA (frontend/dist)
+
+Upload flow:
+  PDF → storage.py (Supabase or local)
+      → IngestionAgent (pymupdf4llm extract)
+      → langchain_rag.split_pages_to_chunks (metadata: page, title, course)
+      → langchain_store → argus_vectors (PGVectorStore)
+
+Question flow:
+  query → langchain_store.similarity_search (scoped by textbook)
+        → langchain_chain (Gemini tutor prompt)
+        → EvalAgent (citation check)
+        → JSON response → React UI
+```
+
+**No Redis, no separate worker.** Ingestion runs as a background task in the same process.
+
+---
+
+## Quick start
+
+**Prerequisites:** Python 3.12+, Node 18+, npm
+
+```bash
+cp .env.example .env
+# Fill in at minimum: SECRET_KEY, ADMIN_EMAIL, Google OAuth, GEMINI_API_KEY
+# Recommended: DATABASE_URL + Supabase storage keys (see below)
+# Optional graph: NEO4J_URI, NEO4J_PASSWORD, DEEPSEEK_API_KEY
+
+make install          # Python venv + pip
+make app              # builds React + starts http://localhost:8000
+```
+
+Open http://localhost:8000 → **Sign in with Google** with the address in `ADMIN_EMAIL` → upload a PDF on **Library** → wait for status **ready** → **Search**.
+
+Windows, from the repo root, if you do not have `make`:
+
+```bat
 py -3 -m venv .venv
 .venv\Scripts\pip install -r src\backend\requirements.txt
 cd src\frontend
@@ -80,146 +154,260 @@ cd ..\..
 .venv\Scripts\python -m uvicorn api.main:app --app-dir src/backend --reload --port 8000
 ```
 
-On macOS or Linux without `make`, use `python3 -m venv .venv`, then `.venv/bin/pip` and `.venv/bin/python` in place of the Windows paths above. The uvicorn line stays the same.
+### Development (hot reload UI)
 
-Open the site on localhost port 8000. Choose Sign in with Google. Use the Gmail address you put in `ADMIN_EMAIL`. You land on the search field. Open Library, upload a PDF, and wait until its status is ready. Go back to Search and ask a question. The answer and the cited page open together.
+Terminal 1 — API:
 
-For a live UI while you edit, keep the API running on port 8000 and, in a second terminal, run `make frontend-dev`. The Vite server listens on port 5173 and forwards API calls to port 8000. Without `make`, run `npm run dev` inside `src/frontend`.
-
-`make test` runs the fast suite. It does not need Docker or any of the keys above.
-
-`make test-integration` starts the Postgres and Neo4j containers in `docker-compose.test.yml`, runs the integration tests, and removes the containers.
-
-`make stop` frees port 8000 on systems that have `lsof`. On Windows, stop the terminal that is running uvicorn.
-
-On Windows the Makefile uses `.venv/Scripts`. On other systems it uses `.venv/bin`.
-
-## How to get the keys
-
-Put every value in `.env` at the repo root. Do not commit that file. A line in the file looks like the name, an equals sign, then the value, with no quotes.
-
-### Cookie signing and the admin account
-
-`SECRET_KEY` signs the login cookie. It is not issued by a website. Generate one and paste it in.
-
-```text
-py -3 -c "import secrets; print(secrets.token_hex(32))"
+```bash
+make install
+.venv/bin/uvicorn api.main:app --app-dir src/backend --reload --port 8000
 ```
 
-`ADMIN_EMAIL` is the Gmail address you will use as the admin. That same address must be the one that completes Google sign-in. Several admins are separated by commas.
+On Windows that uvicorn line is `.venv\Scripts\python -m uvicorn api.main:app --app-dir src/backend --reload --port 8000`.
 
-`GUEST_CHAT_COOLDOWN_SECONDS` defaults to 300. `GUEST_CHAT_DAILY_LIMIT` defaults to 10. Leave them commented out unless you want different guest limits.
+Terminal 2 — Vite (proxies API to :8000):
 
-### Google sign-in
-
-You need a Google Cloud project and an OAuth web client.
-
-1. Open console.cloud.google.com and create a project, or pick one you already have.
-2. Open APIs and Services, then OAuth consent screen. Set the app name and your email. If the app stays in testing, add that same Gmail address as a test user. The scope the app requests is email and profile, which are on the consent screen by default.
-3. Open APIs and Services, then Credentials, then Create credentials, then OAuth client ID, then Web application.
-4. Under Authorized redirect URIs, add this value exactly.
-
-```text
-http://localhost:8000/auth/google/callback
+```bash
+make frontend-dev     # http://localhost:5173
 ```
 
-5. Copy the client id into `GOOGLE_CLIENT_ID`. Copy the client secret into `GOOGLE_CLIENT_SECRET`.
-6. Set `GOOGLE_REDIRECT_URI` to that same redirect string. If this value and the Google Cloud redirect differ by even a slash, login fails.
+---
 
-For a deployed site, add a second redirect that uses your real host and the path `auth/google/callback`, and point `GOOGLE_REDIRECT_URI` at that deployed value.
+## Environment variables
 
-### Gemini, for embeddings and answers
+Copy `.env.example` to `.env`. Full key setup is below.
 
-Answers and textbook embeddings both use Gemini unless you switch the answer model later.
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SECRET_KEY` | Yes | Signs session cookies |
+| `ADMIN_EMAIL` | Yes | Admin Google account(s) — unlimited chat, upload/delete, `/admin` |
+| `GUEST_CHAT_COOLDOWN_SECONDS` | Optional | Guest min seconds between chats (default `300`) |
+| `GUEST_CHAT_DAILY_LIMIT` | Optional | Guest max chats per UTC day (default `10`) |
+| `GOOGLE_CLIENT_ID` | Yes | Google OAuth client |
+| `GOOGLE_CLIENT_SECRET` | Yes | Google OAuth secret |
+| `GOOGLE_REDIRECT_URI` | Yes | `http://localhost:8000/auth/google/callback` (local) |
+| `GEMINI_API_KEY` | Yes | Embeddings + chat (LangChain Google GenAI) |
+| `DATABASE_URL` | Recommended | Supabase Postgres URI — vectors + document metadata |
+| `SUPABASE_URL` | Recommended | Project URL for Storage + dashboard links |
+| `SUPABASE_SERVICE_KEY` | Recommended | **service_role** secret (PDF uploads) |
+| `STORAGE_BACKEND` | Optional | `local` (dev) or `supabase` (prod; default when `ENVIRONMENT=production`) |
+| `SUPABASE_BUCKET` | Optional | Storage bucket name (default `argus-pdfs`) |
+| `ENVIRONMENT` | Optional | `production` → secure cookies + supabase storage default |
+| `GEMINI_MODEL` | Optional | Chat model (default `gemini-2.5-flash`) |
+| `LLM_PROVIDER` | Optional | `gemini` (default) or `deepseek` for answers |
+| `DEEPSEEK_API_KEY` | Optional | Page-to-graph extraction. Also the answer model when `LLM_PROVIDER=deepseek` |
+| `NEO4J_URI` | Optional | Bolt URL. Graph ingestion runs only with this, `NEO4J_PASSWORD`, and `DEEPSEEK_API_KEY` |
+| `NEO4J_USERNAME` | Optional | Defaults to `neo4j` |
+| `NEO4J_PASSWORD` | Optional | Neo4j password |
+| `GMAIL_USER` / `GMAIL_APP_PASSWORD` | Optional | Email flashcards to yourself |
+| `APP_BASE_URL` | Optional | Base URL in email citation links |
 
-1. Open aistudio.google.com/apikey.
-2. Create an API key. You can attach it to the same Google Cloud project.
-3. Paste it into `GEMINI_API_KEY`.
+**Aliases:** `SUPABASE_SERVICE_ROLE_KEY` works instead of `SUPABASE_SERVICE_KEY`. Legacy `SUPABASE_KEY` only if it is a service_role secret (not publishable/anon).
 
-`GEMINI_MODEL` overrides the chat model. The default is `gemini-2.5-flash`. Embeddings stay on `models/gemini-embedding-001` at 3072 dimensions. Leave `LLM_PROVIDER` as `gemini`.
+---
 
-A 429 or 503 from chat usually means the Gemini quota or a short outage. Wait, or set `GEMINI_MODEL` to another model your key can call.
+## How to get each key
 
-### Postgres, so textbooks survive a restart
+### `SECRET_KEY`
 
-This block is optional for a first local run. Without `DATABASE_URL`, uploads live only until you stop the server.
+Random string for cookie signing:
 
-Argus expects Postgres with the `vector` extension. Supabase includes it.
-
-1. Create a project at supabase.com/dashboard.
-2. Open the project, then Connect, or Project Settings then Database. Copy the URI connection string.
-3. Replace the password placeholder with the database password. If the password contains characters such as `@` or `#`, encode them in the URL first. `@` becomes `%40` and `#` becomes `%23`.
-4. Paste the whole string as `DATABASE_URL`.
-
-On startup the API runs `src/backend/db/schema.sql`, which creates the tables and the vector index. If the project is paused, wake it from the Supabase dashboard before starting Argus.
-
-### PDF files in the cloud
-
-For local development leave `STORAGE_BACKEND` as `local`. PDFs are written to `src/backend/uploaded_pdfs`.
-
-Use Supabase Storage when you deploy, or whenever you do not want the PDFs only on this machine.
-
-1. In the same Supabase project, open Project Settings, then API.
-2. Copy the project URL into `SUPABASE_URL`. It looks like `https://your-project.supabase.co`.
-3. Under Project API keys, reveal the `service_role` secret. Paste it into `SUPABASE_SERVICE_KEY`. Do not use the anon key or a key that starts with `sb_publishable`. Those cannot upload files. `SUPABASE_SERVICE_ROLE_KEY` is accepted as another name for the same secret.
-4. Create a storage bucket named `argus-pdfs`, or set `SUPABASE_BUCKET` to the bucket you created.
-5. Set `STORAGE_BACKEND` to `supabase`.
-
-If `ENVIRONMENT` is `production` and you do not set `STORAGE_BACKEND`, the app chooses Supabase storage on its own. Local development should keep `ENVIRONMENT` as `development`.
-
-### Knowledge graph
-
-Skip this until search, quiz, and flashcards already work. The Graph tab then says the graph is off, which is expected.
-
-The graph turns on only when `NEO4J_URI`, `NEO4J_PASSWORD`, and `DEEPSEEK_API_KEY` are all set. `NEO4J_USERNAME` defaults to `neo4j`.
-
-DeepSeek reads each textbook page into entities and relationships.
-
-1. Open platform.deepseek.com and create an API key.
-2. Paste it into `DEEPSEEK_API_KEY`.
-
-Neo4j stores those entities. A local Desktop or server install is enough.
-
-1. Install Neo4j and set a password.
-2. Set `NEO4J_URI` to `bolt://localhost:7687` unless your install uses another port.
-3. Set `NEO4J_USERNAME` to `neo4j` and `NEO4J_PASSWORD` to the password you chose.
-
-Re-upload a textbook after these three values are set. Pages ingested earlier are not mined for the graph.
-
-`DEEPSEEK_API_KEY` is also how you switch answers off Gemini. Set `LLM_PROVIDER` to `deepseek` only if you want DeepSeek to write the student-facing answers too. The graph extractor uses the DeepSeek key either way.
-
-### Flashcard email
-
-Skip this if you do not need Email me or Send to subscribers. Those buttons report that mail is not configured until Gmail is set.
-
-1. Use a Gmail account with 2-step verification turned on.
-2. Open myaccount.google.com/apppasswords and create an app password for Mail.
-3. Set `GMAIL_USER` to that Gmail address.
-4. Set `GMAIL_APP_PASSWORD` to the 16 character app password.
-5. Set `APP_BASE_URL` to the site people open. Locally that is `http://localhost:8000`. Citation links in the email use this address.
-
-## Tests
-
-`tests/conftest.py` forces an in-memory database, a fake chat model, and a local upload folder. `tests/fakes.py` holds those stand-ins, including a hash embedder so retrieval can be tested without Gemini.
-
-`make test` covers units and the HTTP routes. An admin chat shows up in the session list. A guest chat does not. The graph route reports that the graph is off when Neo4j is unset.
-
-`make test-integration` uses a real Postgres with pgvector on port 55432 and Neo4j Bolt on port 7688. Those tests skip with a clear message if the containers are down.
-
-## Layout
-
-```text
-Makefile                         install, run, and test commands
-pytest.ini                       pytest paths and the integration marker
-docker-compose.test.yml          Postgres and Neo4j for integration tests
-.env.example                     settings template
-src/backend                      API, study pipeline, database, ingestion
-src/frontend                     React app
-tests                            fast tests and Docker-backed tests
+```bash
+openssl rand -hex 32
 ```
 
-Each of those folders has its own readme that names every file and how it connects to the running app.
+### `ADMIN_EMAIL`
+
+Admin Google address(es) with full access (upload, delete, database page, unlimited chat). **Anyone** can sign in with Google as a guest; guests are rate-limited on chat.
+
+```env
+ADMIN_EMAIL=you@gmail.com
+```
+
+Multiple admins: `you@gmail.com,partner@gmail.com`
+
+Guest defaults: 1 chat every 5 minutes and 10 chats/day (`GUEST_CHAT_COOLDOWN_SECONDS`, `GUEST_CHAT_DAILY_LIMIT`).
+
+### Google OAuth (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`)
+
+1. Open [Google Cloud Console](https://console.cloud.google.com/) → create or select a project
+2. **APIs & Services → OAuth consent screen** — configure; add yourself as a **test user** if app is in Testing mode
+3. **Credentials → Create credentials → OAuth client ID → Web application**
+4. **Authorized redirect URIs:** add exactly:
+   - Local: `http://localhost:8000/auth/google/callback`
+   - Production: `https://your-domain.com/auth/google/callback`
+5. Copy **Client ID** → `GOOGLE_CLIENT_ID`, **Client secret** → `GOOGLE_CLIENT_SECRET`
+6. Set `GOOGLE_REDIRECT_URI` to match the URI you registered
+
+### `GEMINI_API_KEY`
+
+1. Go to [Google AI Studio → API keys](https://aistudio.google.com/apikey)
+2. **Create API key** (use an existing Google Cloud project or create one)
+3. Paste into `.env` as `GEMINI_API_KEY`
+
+Used for:
+- **Embeddings** — `models/gemini-embedding-001` at 3072 dimensions (LangChain)
+- **Chat** — `gemini-2.5-flash` by default (override with `GEMINI_MODEL`)
+
+Free tier has daily limits; if chat fails with 429, wait or switch models in `.env`.
+
+### DeepSeek and Neo4j (optional knowledge graph)
+
+Skip this until login, upload, and search already work. The Graph tab says the graph is off until all three of `NEO4J_URI`, `NEO4J_PASSWORD`, and `DEEPSEEK_API_KEY` are set. Re-upload a textbook after that. Pages ingested earlier are not mined.
+
+**DeepSeek**
+
+1. Open [platform.deepseek.com](https://platform.deepseek.com) and create an API key
+2. Paste it as `DEEPSEEK_API_KEY`
+
+Leave `LLM_PROVIDER=gemini` unless you also want DeepSeek to write the student-facing answers. The graph extractor uses the DeepSeek key either way.
+
+**Neo4j**
+
+1. Install Neo4j Desktop or a local server and set a password
+2. Set `NEO4J_URI` to `bolt://localhost:7687` (change the port if yours differs)
+3. Set `NEO4J_USERNAME=neo4j` and `NEO4J_PASSWORD` to the password you chose
+
+### Supabase (database + PDF storage)
+
+Create a free project at [supabase.com/dashboard](https://supabase.com/dashboard).
+
+#### `DATABASE_URL` (Postgres)
+
+1. Open your project → click **Connect** (top) or **Project Settings → Database**
+2. Copy the **URI** connection string, e.g.:
+   ```text
+   postgresql://postgres.[ref]:[PASSWORD]@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+   ```
+3. Replace `[PASSWORD]` with your database password (URL-encode special chars: `@` → `%40`, `#` → `%23`)
+4. Paste as `DATABASE_URL=...`
+
+On startup Argus runs `src/backend/db/schema.sql`. The vector column is `vector(3072)` with an HNSW index on the halfvec cast. Supabase Postgres includes the `vector` extension.
+
+#### `SUPABASE_URL`
+
+1. **Project Settings → API**
+2. Copy **Project URL** → `https://xxxx.supabase.co`
+
+#### `SUPABASE_SERVICE_KEY` (Storage uploads)
+
+1. Same **Project Settings → API** page
+2. Under **Project API keys**, reveal the **`service_role`** / **secret** key (`eyJ...` or `sb_secret_...`)
+3. Paste as `SUPABASE_SERVICE_KEY=...`
+
+**Do not use the publishable/anon key** — it cannot upload files server-side.
+
+#### `STORAGE_BACKEND`
+
+| Value | When to use |
+|-------|-------------|
+| `local` | Dev without Supabase; PDFs in `src/backend/uploaded_pdfs/` |
+| `supabase` | Production (Render/Railway); PDFs in cloud bucket |
+
+Production default: if `ENVIRONMENT=production`, storage is `supabase` unless you override.
+
+#### Example Supabase block
+
+```env
+DATABASE_URL=postgresql://postgres.xxxx:YOUR_PASSWORD@aws-0-us-east-1.pooler.supabase.com:5432/postgres
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_SERVICE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+STORAGE_BACKEND=supabase
+SUPABASE_BUCKET=argus-pdfs
+```
+
+### Gmail flashcards (optional)
+
+1. Use a Gmail account → [Google App Passwords](https://myaccount.google.com/apppasswords) (requires 2FA)
+2. Create an app password for “Mail”
+3. Set `GMAIL_USER=you@gmail.com` and `GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx`
+4. In Study mode, generate flashcards and check **Email flashcards** or use **Email last flashcards**
+
+---
+
+## Make commands
+
+| Command | Description |
+|---------|-------------|
+| `make install` | Create `.venv`, install Python deps |
+| `make frontend` | `npm install` + build React to `src/frontend/dist` |
+| `make frontend-dev` | Vite dev server on :5173 (proxy to API) |
+| `make app` | Build frontend + run FastAPI on :8000 |
+| `make test` | Fast pytest suite (no Docker, no API keys) |
+| `make test-integration` | Docker Postgres + Neo4j, then the integration tests |
+| `make stop` | Kill process on port 8000 |
+
+The same suites run on every push and pull request from `.github/workflows/tests.yml`. One job is `make test`. The other starts the Docker Postgres and Neo4j services and runs `make test-integration`.
+
+---
+
+## API routes
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| GET | `/health` | No | Health check |
+| GET | `/auth/google` | No | Start OAuth |
+| GET | `/logout` | No | Clear session |
+| GET | `/me` | Yes | Email, `is_admin`, chat quota |
+| GET | `/documents` | Yes | List textbooks |
+| POST | `/documents` | Admin | Upload PDF |
+| GET | `/documents/{id}/status` | Yes | Ingestion status |
+| GET | `/documents/{id}/file` | Yes | PDF bytes (viewer) |
+| DELETE | `/documents/{id}` | Admin | Delete one book |
+| POST | `/documents/bulk-delete` | Admin | Delete many |
+| POST | `/chat` | Yes | Ask question (RAG; guests rate-limited). Admin threads are saved. Guest threads are not. |
+| GET | `/sessions` | Admin | List saved study threads |
+| GET | `/sessions/{id}` | Admin | One saved thread |
+| GET | `/graph` | Yes | Knowledge graph nodes and edges. `{enabled: false}` when Neo4j is unset. A browser visit returns the Graph page. |
+| GET | `/flashcards/offers` | Yes | Textbooks open for flashcard signup |
+| POST | `/flashcards/subscribe` | Yes | Subscribe to a textbook's flashcards |
+| POST | `/flashcards/unsubscribe` | Yes | Unsubscribe |
+| POST | `/flashcards/broadcast` | Admin | Email flashcard deck to all subscribers |
+| PATCH | `/documents/{id}/flashcards-open` | Admin | Open/close guest flashcard signup |
+| GET | `/admin/config` | Admin | Supabase dashboard URLs |
+| GET | `/admin/stats` | Admin | Document + vector counts |
+| GET | `/admin/documents/{id}/chunks` | Admin | Sample chunks |
+
+React pages: `/login`, `/` (search), `/library`, `/study`, `/quiz`, `/flashcards`, `/graph`, `/admin`
+
+---
+
+## Deploy (Render / Railway)
+
+One web service:
+
+**Build:**
+```bash
+cd src/frontend && npm install && npm run build
+pip install -r src/backend/requirements.txt
+```
+
+**Start:**
+```bash
+uvicorn api.main:app --app-dir src/backend --host 0.0.0.0 --port $PORT
+```
+
+**Env:** set all production vars; `GOOGLE_REDIRECT_URI` must match your live URL; `ENVIRONMENT=production`; `STORAGE_BACKEND=supabase`; `DATABASE_URL` + `SUPABASE_SERVICE_KEY`.
+
+After deploy, **re-upload textbooks** if migrating from an older schema so vectors land in `argus_vectors`.
+
+---
+
+## Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| Login redirect error | `GOOGLE_REDIRECT_URI` must match Google Console exactly |
+| 401 on Study/Library | Sign in again; check `SECRET_KEY` did not change mid-session |
+| Upload fails (storage) | Use `SUPABASE_SERVICE_KEY`, not publishable key; set `STORAGE_BACKEND=supabase` |
+| Stuck on `processing` | Check terminal logs; usually `GEMINI_API_KEY` or PDF extract failure |
+| Chat 429 / 503 | Gemini quota or outage; retry or change `GEMINI_MODEL` |
+| DB connection error | URL-encode password in `DATABASE_URL`; wake paused Supabase project; copy a **fresh** URI from Dashboard → Database (error `tenant/user … not found` = wrong/old project ref). App falls back to in-memory if Postgres is unreachable. |
+| Blank UI | Run `make frontend` before `make app`; need `src/frontend/dist` |
+| Old books have no answers | Re-upload after LangChain migration — chunks live in `argus_vectors` |
+
+---
 
 ## License
 
-See `LICENSE`.
+See [LICENSE](LICENSE).
