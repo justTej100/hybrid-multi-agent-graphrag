@@ -54,53 +54,149 @@ The chat route records guest usage first, runs that loop, and then, for an admin
 
 ## How to run it
 
-You need Python 3.12 or newer and Node 18 or newer. This repo has been run on Python 3.14.
+You need Python 3.12 or newer, Node 18 or newer, and a Google account. This repo has been run on Python 3.14.
 
-Copy `.env.example` to `.env` and fill in the settings below.
+From the repo root, copy `.env.example` to a file named `.env`. Fill in the keys in the next section before you start the server. The API reads that file on startup.
+
+The smallest set that can sign you in and answer questions is `SECRET_KEY`, `ADMIN_EMAIL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, and `GEMINI_API_KEY`. Leave `STORAGE_BACKEND` as `local`. You can leave `DATABASE_URL` empty for a first run. Textbooks then live in memory and disappear when the process stops.
+
+If `make` is installed, these three commands are enough.
 
 `make install` creates `.venv` and installs the Python packages from `src/backend/requirements.txt`.
 
 `make frontend` installs the UI packages and builds the React app into `src/frontend/dist`.
 
-`make app` installs dependencies, builds the UI, and starts the API on port 8000. Open that site and sign in with Google.
+`make app` installs dependencies, builds the UI, and starts the API on port 8000.
 
-For a live UI while you edit, start the API, then in another terminal run `make frontend-dev`. The Vite server listens on port 5173 and forwards API calls to port 8000.
+On Windows without `make`, run this from the repo root instead.
 
-`make test` runs the fast suite. It does not need Docker.
+```text
+py -3 -m venv .venv
+.venv\Scripts\pip install -r src\backend\requirements.txt
+cd src\frontend
+npm install
+npm run build
+cd ..\..
+.venv\Scripts\python -m uvicorn api.main:app --app-dir src/backend --reload --port 8000
+```
+
+On macOS or Linux without `make`, use `python3 -m venv .venv`, then `.venv/bin/pip` and `.venv/bin/python` in place of the Windows paths above. The uvicorn line stays the same.
+
+Open the site on localhost port 8000. Choose Sign in with Google. Use the Gmail address you put in `ADMIN_EMAIL`. You land on the search field. Open Library, upload a PDF, and wait until its status is ready. Go back to Search and ask a question. The answer and the cited page open together.
+
+For a live UI while you edit, keep the API running on port 8000 and, in a second terminal, run `make frontend-dev`. The Vite server listens on port 5173 and forwards API calls to port 8000. Without `make`, run `npm run dev` inside `src/frontend`.
+
+`make test` runs the fast suite. It does not need Docker or any of the keys above.
 
 `make test-integration` starts the Postgres and Neo4j containers in `docker-compose.test.yml`, runs the integration tests, and removes the containers.
 
-`make stop` frees port 8000 on systems that have `lsof`.
+`make stop` frees port 8000 on systems that have `lsof`. On Windows, stop the terminal that is running uvicorn.
 
 On Windows the Makefile uses `.venv/Scripts`. On other systems it uses `.venv/bin`.
 
-## Settings
+## How to get the keys
 
-Put these in `.env` at the repo root. The API loads that file on startup unless `ARGUS_SKIP_DOTENV` is set to `1`, which the test suite does so a developer file cannot leak into tests.
+Put every value in `.env` at the repo root. Do not commit that file. A line in the file looks like the name, an equals sign, then the value, with no quotes.
 
-`SECRET_KEY` signs the session cookie. Use a long random string.
+### Cookie signing and the admin account
 
-`ADMIN_EMAIL` is the Google address with admin rights. Several addresses are separated by commas.
+`SECRET_KEY` signs the login cookie. It is not issued by a website. Generate one and paste it in.
 
-`GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` come from a Google Cloud OAuth web client.
+```text
+py -3 -c "import secrets; print(secrets.token_hex(32))"
+```
 
-`GOOGLE_REDIRECT_URI` must match the redirect registered for that client. Locally that is the path `auth/google/callback` on localhost port 8000.
+`ADMIN_EMAIL` is the Gmail address you will use as the admin. That same address must be the one that completes Google sign-in. Several admins are separated by commas.
 
-`GEMINI_API_KEY` is used for embeddings and, by default, for answers. `GEMINI_MODEL` overrides the chat model. The default model is `gemini-2.5-flash`. Embeddings use `models/gemini-embedding-001` at 3072 dimensions.
+`GUEST_CHAT_COOLDOWN_SECONDS` defaults to 300. `GUEST_CHAT_DAILY_LIMIT` defaults to 10. Leave them commented out unless you want different guest limits.
 
-`LLM_PROVIDER` chooses the answer model. `gemini` is the default. `deepseek` uses `DEEPSEEK_API_KEY` for answers.
+### Google sign-in
 
-`DATABASE_URL` is the Postgres connection string. The database needs the `vector` extension. On startup the API applies `src/backend/db/schema.sql`. Leave this empty to keep data in memory, which is how the fast tests run.
+You need a Google Cloud project and an OAuth web client.
 
-`SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, and `SUPABASE_BUCKET` are for PDF storage in Supabase. The bucket default is `argus-pdfs`. Use the service role key, not the public anon key.
+1. Open console.cloud.google.com and create a project, or pick one you already have.
+2. Open APIs and Services, then OAuth consent screen. Set the app name and your email. If the app stays in testing, add that same Gmail address as a test user. The scope the app requests is email and profile, which are on the consent screen by default.
+3. Open APIs and Services, then Credentials, then Create credentials, then OAuth client ID, then Web application.
+4. Under Authorized redirect URIs, add this value exactly.
 
-`STORAGE_BACKEND` is `local` or `supabase`. Local files land in `src/backend/uploaded_pdfs`. Production with `ENVIRONMENT` set to `production` defaults to Supabase storage.
+```text
+http://localhost:8000/auth/google/callback
+```
 
-`GUEST_CHAT_COOLDOWN_SECONDS` defaults to 300. `GUEST_CHAT_DAILY_LIMIT` defaults to 10.
+5. Copy the client id into `GOOGLE_CLIENT_ID`. Copy the client secret into `GOOGLE_CLIENT_SECRET`.
+6. Set `GOOGLE_REDIRECT_URI` to that same redirect string. If this value and the Google Cloud redirect differ by even a slash, login fails.
 
-`GMAIL_USER` and `GMAIL_APP_PASSWORD` turn on flashcard email. Without them, the email actions report that mail is not configured. `APP_BASE_URL` is the site address used inside those emails.
+For a deployed site, add a second redirect that uses your real host and the path `auth/google/callback`, and point `GOOGLE_REDIRECT_URI` at that deployed value.
 
-The knowledge graph runs only when all three of these are set. `NEO4J_URI`, `NEO4J_PASSWORD`, and `DEEPSEEK_API_KEY`. `NEO4J_USERNAME` defaults to `neo4j`. DeepSeek is the model that reads each page into entities and relationships. The app still answers questions when this trio is absent.
+### Gemini, for embeddings and answers
+
+Answers and textbook embeddings both use Gemini unless you switch the answer model later.
+
+1. Open aistudio.google.com/apikey.
+2. Create an API key. You can attach it to the same Google Cloud project.
+3. Paste it into `GEMINI_API_KEY`.
+
+`GEMINI_MODEL` overrides the chat model. The default is `gemini-2.5-flash`. Embeddings stay on `models/gemini-embedding-001` at 3072 dimensions. Leave `LLM_PROVIDER` as `gemini`.
+
+A 429 or 503 from chat usually means the Gemini quota or a short outage. Wait, or set `GEMINI_MODEL` to another model your key can call.
+
+### Postgres, so textbooks survive a restart
+
+This block is optional for a first local run. Without `DATABASE_URL`, uploads live only until you stop the server.
+
+Argus expects Postgres with the `vector` extension. Supabase includes it.
+
+1. Create a project at supabase.com/dashboard.
+2. Open the project, then Connect, or Project Settings then Database. Copy the URI connection string.
+3. Replace the password placeholder with the database password. If the password contains characters such as `@` or `#`, encode them in the URL first. `@` becomes `%40` and `#` becomes `%23`.
+4. Paste the whole string as `DATABASE_URL`.
+
+On startup the API runs `src/backend/db/schema.sql`, which creates the tables and the vector index. If the project is paused, wake it from the Supabase dashboard before starting Argus.
+
+### PDF files in the cloud
+
+For local development leave `STORAGE_BACKEND` as `local`. PDFs are written to `src/backend/uploaded_pdfs`.
+
+Use Supabase Storage when you deploy, or whenever you do not want the PDFs only on this machine.
+
+1. In the same Supabase project, open Project Settings, then API.
+2. Copy the project URL into `SUPABASE_URL`. It looks like `https://your-project.supabase.co`.
+3. Under Project API keys, reveal the `service_role` secret. Paste it into `SUPABASE_SERVICE_KEY`. Do not use the anon key or a key that starts with `sb_publishable`. Those cannot upload files. `SUPABASE_SERVICE_ROLE_KEY` is accepted as another name for the same secret.
+4. Create a storage bucket named `argus-pdfs`, or set `SUPABASE_BUCKET` to the bucket you created.
+5. Set `STORAGE_BACKEND` to `supabase`.
+
+If `ENVIRONMENT` is `production` and you do not set `STORAGE_BACKEND`, the app chooses Supabase storage on its own. Local development should keep `ENVIRONMENT` as `development`.
+
+### Knowledge graph
+
+Skip this until search, quiz, and flashcards already work. The Graph tab then says the graph is off, which is expected.
+
+The graph turns on only when `NEO4J_URI`, `NEO4J_PASSWORD`, and `DEEPSEEK_API_KEY` are all set. `NEO4J_USERNAME` defaults to `neo4j`.
+
+DeepSeek reads each textbook page into entities and relationships.
+
+1. Open platform.deepseek.com and create an API key.
+2. Paste it into `DEEPSEEK_API_KEY`.
+
+Neo4j stores those entities. A local Desktop or server install is enough.
+
+1. Install Neo4j and set a password.
+2. Set `NEO4J_URI` to `bolt://localhost:7687` unless your install uses another port.
+3. Set `NEO4J_USERNAME` to `neo4j` and `NEO4J_PASSWORD` to the password you chose.
+
+Re-upload a textbook after these three values are set. Pages ingested earlier are not mined for the graph.
+
+`DEEPSEEK_API_KEY` is also how you switch answers off Gemini. Set `LLM_PROVIDER` to `deepseek` only if you want DeepSeek to write the student-facing answers too. The graph extractor uses the DeepSeek key either way.
+
+### Flashcard email
+
+Skip this if you do not need Email me or Send to subscribers. Those buttons report that mail is not configured until Gmail is set.
+
+1. Use a Gmail account with 2-step verification turned on.
+2. Open myaccount.google.com/apppasswords and create an app password for Mail.
+3. Set `GMAIL_USER` to that Gmail address.
+4. Set `GMAIL_APP_PASSWORD` to the 16 character app password.
+5. Set `APP_BASE_URL` to the site people open. Locally that is `http://localhost:8000`. Citation links in the email use this address.
 
 ## Tests
 
