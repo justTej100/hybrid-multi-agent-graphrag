@@ -1,12 +1,5 @@
 from __future__ import annotations
 
-"""Pytest fixtures for smoke-testing the study buddy app.
-
-The client fixture imports the FastAPI app, then
-monkeypatches storage and database helpers so the tests can focus on request
-handling and route behavior without external services.
-"""
-
 import os
 import sys
 from pathlib import Path
@@ -14,150 +7,66 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+# Keep developer .env values from pointing the fast suite at a real database.
+os.environ['ARGUS_SKIP_DOTENV'] = '1'
+os.environ['DATABASE_URL'] = ''
+os.environ['NEO4J_URI'] = ''
+os.environ['NEO4J_PASSWORD'] = ''
+os.environ['DEEPSEEK_API_KEY'] = ''
+os.environ.setdefault('SECRET_KEY', 'test-secret-key')
+os.environ.setdefault('ADMIN_EMAIL', 'admin@test.com')
+
+_TESTS = Path(__file__).resolve().parent
+if str(_TESTS) not in sys.path:
+    sys.path.insert(0, str(_TESTS))
+
+
+def _session(client: TestClient, email: str) -> TestClient:
+    from api.routers.auth import COOKIE_NAME, issue_session_token
+
+    client.cookies.set(COOKIE_NAME, issue_session_token(email))
+    return client
+
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    os.environ['SECRET_KEY'] = 'test-secret-key'
-    os.environ['ADMIN_EMAIL'] = 'admin@test.com'
-    os.environ.pop('DATABASE_URL', None)
-    os.environ['GUEST_CHAT_COOLDOWN_SECONDS'] = '300'
-    os.environ['GUEST_CHAT_DAILY_LIMIT'] = '10'
+def client(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> TestClient:
+    monkeypatch.setenv('SECRET_KEY', 'test-secret-key')
+    monkeypatch.setenv('ADMIN_EMAIL', 'admin@test.com')
+    monkeypatch.setenv('DATABASE_URL', '')
+    monkeypatch.setenv('NEO4J_URI', '')
+    monkeypatch.setenv('NEO4J_PASSWORD', '')
+    monkeypatch.setenv('DEEPSEEK_API_KEY', '')
+    monkeypatch.setenv('STORAGE_BACKEND', 'local')
+    monkeypatch.setenv('ARGUS_INGEST_INLINE', '1')
+    monkeypatch.setenv('GUEST_CHAT_COOLDOWN_SECONDS', '300')
+    monkeypatch.setenv('GUEST_CHAT_DAILY_LIMIT', '10')
+    monkeypatch.setenv('GMAIL_USER', '')
+    monkeypatch.setenv('GMAIL_APP_PASSWORD', '')
 
-    project_root = Path(__file__).resolve().parents[1]
-    if str(project_root) not in sys.path:
-        sys.path.insert(0, str(project_root))
+    import storage
+    from agents.service import set_llm
+    from api.main import app
+    from api.routers.rate_limit import reset_memory_usage
+    from db.client import reset_memory
+    from db.subscriptions import reset_memory_subscriptions
+    from fakes import FakeChatModel
 
-    from rate_limit import reset_memory_usage
-
+    monkeypatch.setattr(storage, 'LOCAL_UPLOAD_DIR', tmp_path)
+    reset_memory()
+    reset_memory_subscriptions()
     reset_memory_usage()
+    set_llm(FakeChatModel())
 
-    import main  # type: ignore
-
-    state: dict[str, dict] = {}
-
-    async def create_document(title: str, description: str | None, status: str, total_pages: int, storage_path: str) -> str:
-        doc_id = f'doc-{len(state) + 1}'
-        state[doc_id] = {
-            'id': doc_id,
-            'title': title,
-            'description': description,
-            'status': status,
-            'total_pages': total_pages,
-            'storage_path': storage_path,
-            'has_scan_warning': False,
-            'error_message': None,
-            'flashcards_open': False,
-        }
-        return doc_id
-
-    async def update_document_status(
-        document_id: str,
-        status: str,
-        total_pages: int | None = None,
-        has_scan_warning: bool | None = None,
-        error_message: str | None = None,
-        storage_path: str | None = None,
-    ) -> None:
-        doc = state[document_id]
-        doc['status'] = status
-        if total_pages is not None:
-            doc['total_pages'] = total_pages
-        if has_scan_warning is not None:
-            doc['has_scan_warning'] = has_scan_warning
-        if error_message is not None:
-            doc['error_message'] = error_message
-        if storage_path is not None:
-            doc['storage_path'] = storage_path
-
-    async def get_document(document_id: str):
-        return state.get(document_id)
-
-    async def list_documents():
-        return list(state.values())
-
-    async def delete_document(document_id: str) -> None:
-        state.pop(document_id, None)
-
-    def upload_pdf(document_id: str, filename: str, data: bytes) -> str:
-        return f'documents/{document_id}/{filename}'
-
-    def schedule_ingestion(document_id: str, storage_path: str) -> str:
-        return f'ingest-{document_id}'
-
-    async def set_flashcards_open(document_id: str, enabled: bool):
-        doc = state.get(document_id)
-        if not doc:
-            return None
-        doc['flashcards_open'] = bool(enabled)
-        return dict(doc)
-
-    monkeypatch.setattr(main, 'create_document', create_document)
-    monkeypatch.setattr(main, 'update_document_status', update_document_status)
-    monkeypatch.setattr(main, 'get_document', get_document)
-    monkeypatch.setattr(main, 'list_documents', list_documents)
-    monkeypatch.setattr(main, 'delete_document', delete_document)
-    monkeypatch.setattr(main, 'upload_pdf', upload_pdf)
-    monkeypatch.setattr(main, 'schedule_ingestion', schedule_ingestion)
-    monkeypatch.setattr(main, 'set_flashcards_open', set_flashcards_open)
-    monkeypatch.setattr('db.subscriptions.get_document', get_document)
-    monkeypatch.setattr('db.subscriptions.list_documents', list_documents)
-
-    monkeypatch.setattr(main, 'download_pdf', lambda _path: b'%PDF-1.4\n%test')
-    monkeypatch.setattr(main, 'delete_pdf', lambda _path: None)
-
-    from types import SimpleNamespace
-
-    def make_dummy_result() -> SimpleNamespace:
-        return SimpleNamespace(
-            query='q',
-            query_type='study',
-            brief='Answer on page 1 [p1]',
-            eval=SimpleNamespace(
-                passed=True,
-                score=1.0,
-                claims_checked=1,
-                claims_grounded=1,
-                ungrounded_claims=[],
-                explanation='ok',
-                citation_errors=[],
-            ),
-            sources=[{'document_id': 'doc-1', 'page_number': 1, 'sentence_start_idx': 0, 'sentence_end_idx': 1, 'text': 'abc', 'document_title': 'Book', 'source_type': 'textbook'}],
-            meta={'mode': 'chat', 'provider': 'gemini'},
-            structured=None,
-        )
-
-    async def fake_run(**_kwargs):
-        return make_dummy_result()
-
-    async def noop_init_schema() -> None:
-        return None
-
-    async def noop_ensure_vector_table() -> None:
-        return None
-
-    monkeypatch.setattr(main.pipeline, 'run', fake_run)
-    monkeypatch.setattr(main, 'init_schema', noop_init_schema)
-
-    import ai.langchain_store as lc_store
-
-    monkeypatch.setattr(lc_store, 'ensure_vector_table', noop_ensure_vector_table)
-
-    app_client = TestClient(main.app)
-    app_client.state_store = state  # type: ignore[attr-defined]
-    return app_client
+    with TestClient(app) as test_client:
+        yield test_client
+    set_llm(None)
 
 
 @pytest.fixture
 def authenticated_client(client: TestClient) -> TestClient:
-    from auth import COOKIE_NAME, issue_session_token
-
-    client.cookies.set(COOKIE_NAME, issue_session_token('admin@test.com'), path='/')
-    return client
+    return _session(client, 'admin@test.com')
 
 
 @pytest.fixture
 def guest_client(client: TestClient) -> TestClient:
-    from auth import COOKIE_NAME, issue_session_token
-
-    client.cookies.set(COOKIE_NAME, issue_session_token('guest@example.com'), path='/')
-    return client
+    return _session(client, 'guest@example.com')

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from rate_limit import check_and_record_chat, reset_memory_usage
+from api.routers.rate_limit import check_and_record_chat, reset_memory_usage
 
 
 @pytest.fixture(autouse=True)
 def _limits(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('DATABASE_URL', raising=False)
+    monkeypatch.setenv('DATABASE_URL', '')
     monkeypatch.setenv('GUEST_CHAT_COOLDOWN_SECONDS', '300')
     monkeypatch.setenv('GUEST_CHAT_DAILY_LIMIT', '10')
     reset_memory_usage()

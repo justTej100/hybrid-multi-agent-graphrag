@@ -22,6 +22,8 @@ __pycache__/
 # Frontend
 # ========================
 frontend/node_modules/
+src/frontend/node_modules/
+src/backend/uploaded_pdfs/
 
 # Python packaging
 dist/

@@ -14,11 +14,12 @@ from db.subscriptions import (
 
 @pytest.fixture(autouse=True)
 def _memory(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('DATABASE_URL', raising=False)
+    monkeypatch.setenv('DATABASE_URL', '')
     reset_memory_subscriptions()
     import db.client as client
 
     client._memory_documents.clear()
+    client._memory_chunks.clear()
     client._pool = None
     client._pool_failed = False
 

@@ -21,8 +21,6 @@ def test_build_flashcards_html_includes_citation_link():
             {
                 'document_id': 'doc-1',
                 'page_number': 2,
-                'sentence_start_idx': 1,
-                'sentence_end_idx': 1,
                 'text': 'x',
             }
         ],

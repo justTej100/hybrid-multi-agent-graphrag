@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from auth import allowed_emails, is_admin_email, normalize_login_email, verify_admin_email
+from api.routers.auth import allowed_emails, is_admin_email, normalize_login_email, verify_admin_email
 
 
 @pytest.fixture(autouse=True)

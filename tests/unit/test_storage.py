@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-"""Tests for PDF storage helpers."""
-
-import os
 from pathlib import Path
 
 import pytest
@@ -39,6 +36,7 @@ def test_upload_pdf_falls_back_to_local_with_publishable_key(
     monkeypatch.setenv('SUPABASE_URL', 'https://example.supabase.co')
     monkeypatch.setenv('SUPABASE_KEY', 'sb_publishable_test_key')
     monkeypatch.delenv('SUPABASE_SERVICE_KEY', raising=False)
+    monkeypatch.setenv('STORAGE_BACKEND', 'local')
 
     import storage
 
@@ -47,3 +45,32 @@ def test_upload_pdf_falls_back_to_local_with_publishable_key(
     path = storage.upload_pdf('doc-123', 'book.pdf', b'%PDF-1.4 test')
     assert path == str(tmp_path / 'doc-123.pdf')
     assert Path(path).read_bytes() == b'%PDF-1.4 test'
+
+
+def test_storage_backend_defaults_local_in_development(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('STORAGE_BACKEND', raising=False)
+    monkeypatch.setenv('ENVIRONMENT', 'development')
+    import storage
+
+    assert storage.storage_backend() == 'local'
+
+
+def test_storage_backend_supabase_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv('STORAGE_BACKEND', raising=False)
+    monkeypatch.setenv('ENVIRONMENT', 'production')
+    import storage
+
+    assert storage.storage_backend() == 'supabase'
+
+
+def test_upload_requires_service_key_when_supabase_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('STORAGE_BACKEND', 'supabase')
+    monkeypatch.setenv('SUPABASE_URL', 'https://example.supabase.co')
+    monkeypatch.delenv('SUPABASE_SERVICE_KEY', raising=False)
+    monkeypatch.delenv('SUPABASE_SERVICE_ROLE_KEY', raising=False)
+    monkeypatch.delenv('SUPABASE_KEY', raising=False)
+
+    import storage
+
+    with pytest.raises(storage.StorageError, match='SUPABASE_SERVICE_KEY'):
+        storage.upload_pdf('doc-1', 'book.pdf', b'%PDF-1.4')
